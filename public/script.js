@@ -28,6 +28,7 @@ const pages = [
   "classesPage",
   "questsPage",
   "friendsPage",
+  "commentsPage",
   "rankingPage",
   "settingsPage",
   "adminPage"
@@ -108,6 +109,11 @@ $("friendsButton")?.addEventListener("click", () => {
   if ($("friendResult")) {
     $("friendResult").innerHTML = "";
   }
+});
+
+$("commentsButton")?.addEventListener("click", async () => {
+  openPage("commentsPage");
+  await loadCommentsV26();
 });
 
 $("rankingButton")?.addEventListener("click", async () => {
@@ -519,7 +525,11 @@ function renderMaintenanceState(state){
   maintenanceState={...(state||{active:false}),active:Boolean(state?.active)};
   const screen=$("maintenanceScreen"),timer=$("maintenanceTimer");
   if(!screen)return;
-  const blocked=maintenanceState.active && !isAdmin();
+  let adminSession=isAdmin();
+  if(!adminSession){
+    try{const saved=JSON.parse(localStorage.getItem("lgv7_user")||"null");adminSession=String(saved?.pseudo||"").toLowerCase()===ADMIN_PSEUDO.toLowerCase();}catch(_){}
+  }
+  const blocked=maintenanceState.active && !adminSession;
   screen.classList.toggle("hidden",!blocked);
   document.body.classList.toggle("maintenance-active",blocked);
   const tick=()=>{
@@ -2271,7 +2281,7 @@ let myGameClassChance = 0;
 let myGameTeammates = [];
 let currentChatFriend = null;
 
-["shopPage","bloodMoonPage"].forEach((id)=>{if(!pages.includes(id))pages.push(id);});
+["shopPage","bloodMoonPage","commentsPage"].forEach((id)=>{if(!pages.includes(id))pages.push(id);});
 
 function esc(value){const d=document.createElement("div");d.textContent=String(value??"");return d.innerHTML;}
 function apiJson(url, options={}){return fetch(url,options).then(async r=>{const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.message||"Erreur serveur");return d;});}
@@ -2434,7 +2444,7 @@ $("adminMaintenanceStart")?.addEventListener("click",async()=>{
   if(!isAdmin())return;
   const msg=$("adminMaintenanceMessage");
   const minutes=Number($("adminMaintenanceMinutes")?.value||0);
-  if(!Number.isFinite(minutes)||minutes<1){if(msg)msg.textContent="❌ Indique une durée d'au moins 1 minute.";return;}
+  if(!Number.isFinite(minutes)||minutes<0.01){if(msg)msg.textContent="❌ Indique une durée d'au moins 0,01 minute.";return;}
   if(msg)msg.textContent="⏳ Activation...";
   try{
     const d=await apiJson("/api/admin/maintenance/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo,durationMinutes:minutes})});
@@ -2653,6 +2663,39 @@ async function loadFriendsV8(){
 $("friendsButton")?.addEventListener("click",loadFriendsV8);
 async function openChatV8(friendPseudo){currentChatFriend=friendPseudo;const c=$("friendResult");if(!c)return;try{const status=await apiJson(`/api/chat/status/${encodeURIComponent(currentUser.pseudo)}/${encodeURIComponent(friendPseudo)}`);if(!status.allowed){if(!status.pending){if(!confirm("Le chat doit être accepté. Envoyer une demande ?"))return;try{await apiJson("/api/chat/request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({fromPseudo:currentUser.pseudo,toPseudo:friendPseudo})});}catch(e){alert("❌ "+e.message);}}return;}const d=await apiJson(`/api/chat/${encodeURIComponent(currentUser.pseudo)}/${encodeURIComponent(friendPseudo)}`);c.innerHTML=`<div class="chat-box"><h3>💬 ${esc(friendPseudo)}</h3><div id="chatMessages">${(d.messages||[]).map(m=>`<p><b>${esc(m.from)} :</b> ${esc(m.text)}</p>`).join("")}</div><div class="chat-compose"><input id="chatInput" maxlength="500" placeholder="Ton message"><button id="chatSend" class="main-button">Envoyer</button></div></div>`;$("chatSend").onclick=async()=>{try{const x=await apiJson("/api/chat/send-safe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({fromPseudo:currentUser.pseudo,toPseudo:friendPseudo,text:$("chatInput").value})});$("chatInput").value="";const m=$("chatMessages");m.insertAdjacentHTML("beforeend",`<p><b>${esc(x.message.from)} :</b> ${esc(x.message.text)}</p>`);}catch(e){alert("❌ "+e.message);}};}catch(e){alert("❌ "+e.message);}}
 socket.on("chatMessage",m=>{if(currentChatFriend&&normalizeClient(m.from)===normalizeClient(currentChatFriend)){const c=$("chatMessages");if(c)c.insertAdjacentHTML("beforeend",`<p><b>${esc(m.from)} :</b> ${esc(m.text)}</p>`);}});
+async function loadCommentsV26(){
+  const c=$("commentsList"); if(!c||!currentUser)return;
+  c.textContent="Chargement...";
+  try{
+    const d=await apiJson("/api/comments");
+    renderCommentsV26(d.comments||[]);
+  }catch(e){c.textContent="❌ "+e.message;}
+}
+function renderCommentsV26(comments){
+  const c=$("commentsList"); if(!c)return;
+  const byParent={};
+  (comments||[]).forEach(x=>{const key=x.parentId||"root";(byParent[key]??=[]).push(x);});
+  Object.values(byParent).forEach(a=>a.sort((x,y)=>Number(x.createdAt||0)-Number(y.createdAt||0)));
+  const build=(parentId=null,depth=0)=>{
+    const arr=byParent[parentId||"root"]||[];
+    return arr.map(x=>{
+      const liked=(x.likes||[]).some(p=>normalizeClient(p)===normalizeClient(currentUser?.pseudo));
+      const children=build(x.id,Math.min(depth+1,3));
+      return `<article class="comment-card" data-comment-id="${esc(x.id)}" style="--comment-depth:${depth}"><div class="comment-head"><strong>🐺 ${esc(x.pseudo)}</strong><small>${new Date(Number(x.createdAt||Date.now())).toLocaleString("fr-FR")}</small></div><p class="comment-text">${esc(x.text)}</p><div class="comment-actions"><button type="button" class="secondary-button comment-like">👍 ${Number(x.likes?.length||0)}${liked?" • aimé":""}</button><button type="button" class="secondary-button comment-reply">↩️ Répondre</button></div>${children}</article>`;
+    }).join("");
+  };
+  c.innerHTML=build()||"<p class=\"muted\">Aucun commentaire pour le moment.</p>";
+  c.querySelectorAll(".comment-like").forEach(btn=>btn.onclick=async()=>{const card=btn.closest("[data-comment-id]");try{await apiJson(`/api/comments/${encodeURIComponent(card.dataset.commentId)}/like`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pseudo:currentUser.pseudo})});}catch(e){alert("❌ "+e.message);}});
+  c.querySelectorAll(".comment-reply").forEach(btn=>btn.onclick=()=>{const card=btn.closest("[data-comment-id]");const input=$("commentInput");if(input){input.dataset.parentId=card.dataset.commentId;input.placeholder="Répondre à ce commentaire...";input.focus();}});
+}
+$("commentSendButton")?.addEventListener("click",async()=>{
+  if(!currentUser)return;
+  const input=$("commentInput"),msg=$("commentMessage");const text=input?.value?.trim()||"";if(!text){if(msg)msg.textContent="❌ Écris un commentaire.";return;}
+  try{const d=await apiJson("/api/comments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pseudo:currentUser.pseudo,text,parentId:input.dataset.parentId||null})});input.value="";delete input.dataset.parentId;input.placeholder="Écris un commentaire...";if(msg)msg.textContent="✅ "+d.message;await loadCommentsV26();}catch(e){if(msg)msg.textContent="❌ "+e.message;}
+});
+socket.on("commentCreated",()=>{if(!$('commentsPage')?.classList.contains('hidden'))loadCommentsV26();});
+socket.on("commentUpdated",()=>{if(!$('commentsPage')?.classList.contains('hidden'))loadCommentsV26();});
+
 function normalizeClient(x){return String(x||"").trim().toLowerCase();}
 
 /* RÉCOMPENSE ADMIN : le type trophées */
