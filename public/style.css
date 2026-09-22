@@ -16,9 +16,14 @@ body {
 }
 
 body {
-  background:
-    radial-gradient(circle at top, rgba(70, 15, 15, 0.55), transparent 45%),
-    linear-gradient(135deg, #090909, #151515 45%, #080808);
+  background-image:
+    linear-gradient(rgba(2,5,9,.48),rgba(2,5,9,.68)),
+    url('/halloween-background.png');
+  background-size: cover;
+  background-position: center center;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  background-color: #05080c;
   color: #f5f5f5;
   min-height: 100vh;
 }
@@ -297,6 +302,8 @@ button:disabled {
 ========================================================= */
 
 .announcement-box {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   width: min(1050px, calc(100% - 40px));
   min-height: 90px;
   margin: 25px auto;
@@ -891,6 +898,8 @@ body {
 
 /* Annonce : même langage visuel que les cartes */
 .announcement-box {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   width: min(1160px, calc(100% - 48px));
   min-height: 76px;
   margin: 24px auto 8px;
@@ -1251,15 +1260,6 @@ body.in-game .v19-game { max-width:1180px; min-height:calc(100vh - 20px); margin
 .personal-event-badge{border-color:rgba(255,255,255,.3);}
 
 /* V26 Halloween visuel — fond fourni par le créateur */
-body.halloween-active{
-  background-image:
-    linear-gradient(rgba(2,5,9,.48),rgba(2,5,9,.68)),
-    url('/halloween-background.png');
-  background-size:cover;
-  background-position:center center;
-  background-attachment:fixed;
-  background-repeat:no-repeat;
-}
 body.halloween-active::before{
   content:"";
   position:fixed;
@@ -1316,3 +1316,15 @@ body.halloween-active::before{
 .admin-maintenance-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0}
 .admin-maintenance-controls input{min-width:150px;flex:0 0 180px}
 @media(max-width:700px){.maintenance-timer{top:14px;right:14px;font-size:20px;padding:10px 12px}.maintenance-content{padding-top:100px}.maintenance-content h1{font-size:38px}.maintenance-content p{font-size:17px}.admin-maintenance-controls{flex-direction:column;align-items:stretch}.admin-maintenance-controls input{flex:auto;width:100%;box-sizing:border-box}}
+
+
+/* V26 commentaires du menu */
+.comment-compose{display:flex;flex-direction:column;gap:10px;margin:18px 0 24px;padding:16px;border:1px solid rgba(255,255,255,.12);border-radius:16px;background:rgba(8,10,14,.72);}
+.comment-compose textarea{width:100%;resize:vertical;min-height:90px;}
+.comments-list{display:flex;flex-direction:column;gap:10px;}
+.comment-card{margin-left:calc(var(--comment-depth,0) * 28px);padding:14px;border:1px solid rgba(255,255,255,.11);border-radius:15px;background:rgba(10,12,16,.78);}
+.comment-head{display:flex;justify-content:space-between;gap:12px;align-items:center;}
+.comment-head small{opacity:.65;}
+.comment-text{white-space:pre-wrap;margin:10px 0;}
+.comment-actions{display:flex;gap:8px;flex-wrap:wrap;}
+@media(max-width:600px){.comment-card{margin-left:calc(var(--comment-depth,0) * 12px)}.comment-head{align-items:flex-start;flex-direction:column;gap:4px}}
