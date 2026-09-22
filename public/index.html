@@ -311,6 +311,16 @@
 
 
       <button
+        id="commentsButton"
+        class="menu-button"
+        type="button"
+      >
+        💬
+        <span>Commentaires</span>
+      </button>
+
+
+      <button
         id="rankingButton"
         class="menu-button"
         type="button"
@@ -565,6 +575,25 @@
 
 
     <!-- ===================================
+         COMMENTAIRES
+    ==================================== -->
+
+    <section
+      id="commentsPage"
+      class="page hidden"
+    >
+      <h2>💬 Commentaires</h2>
+      <p class="muted">Discute avec les autres joueurs, réponds aux commentaires et mets 👍.</p>
+      <div class="comment-compose">
+        <textarea id="commentInput" rows="3" maxlength="500" placeholder="Écris un commentaire..."></textarea>
+        <button id="commentSendButton" type="button" class="main-button">💬 Publier</button>
+        <p id="commentMessage"></p>
+      </div>
+      <div id="commentsList" class="comments-list"></div>
+    </section>
+
+
+    <!-- ===================================
          CLASSEMENT
     ==================================== -->
 
@@ -731,7 +760,8 @@
         <h3>🛠️ Maintenance du jeu</h3>
         <p>Quand la maintenance est active, seul <strong>creator2026</strong> peut continuer à utiliser le jeu.</p>
         <div class="admin-maintenance-controls">
-          <input id="adminMaintenanceMinutes" type="number" min="1" max="10080" value="30" placeholder="Durée en minutes">
+          <input id="adminMaintenanceMinutes" type="number" min="0.01" max="10080" step="0.01" value="30" placeholder="Durée en minutes">
+          <small>Tu peux mettre moins d'une minute (ex. 0,5 = 30 secondes).</small>
           <button id="adminMaintenanceStart" type="button" class="main-button">🛠️ Lancer la maintenance</button>
           <button id="adminMaintenanceStop" type="button" class="danger-button">⛔ Arrêter la maintenance</button>
         </div>
