@@ -69,6 +69,7 @@ function defaultDatabase() {
     announcements: {
       text: "Bienvenue dans Loup-Garou V7 🐺"
     },
+    comments: [],
     bloodMoonProgress: {},
     bloodMoonManualUntil: 0,
     halloweenEvent: { active: false, week: 0, startedAt: 0, endsAt: 0 },
@@ -117,6 +118,7 @@ function mergeDatabase(database) {
   merged.rooms = Array.isArray(merged.rooms) ? merged.rooms : [];
   merged.friendships = Array.isArray(merged.friendships) ? merged.friendships : [];
   merged.friendRequests = Array.isArray(merged.friendRequests) ? merged.friendRequests : [];
+  merged.comments = Array.isArray(merged.comments) ? merged.comments : [];
   merged.messages = Array.isArray(merged.messages) ? merged.messages : [];
   merged.notifications = Array.isArray(merged.notifications) ? merged.notifications : [];
   return merged;
@@ -1765,8 +1767,8 @@ app.get("/api/maintenance", (req,res)=>{
 app.post("/api/admin/maintenance/start", (req,res)=>{
   if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
   const minutes = Number(req.body.durationMinutes);
-  if(!Number.isFinite(minutes) || minutes < 1 || minutes > 10080){
-    return res.status(400).json({message:"La durée doit être comprise entre 1 minute et 7 jours."});
+  if(!Number.isFinite(minutes) || minutes < 0.01 || minutes > 10080){
+    return res.status(400).json({message:"La durée doit être comprise entre 0,01 minute et 7 jours."});
   }
   const now=Date.now();
   db.maintenance={active:true,startedAt:now,endsAt:now+Math.round(minutes*60000),durationMinutes:minutes};
@@ -2000,6 +2002,53 @@ app.post(
   }
 );
 
+
+/* =========================================
+   API : COMMENTAIRES DU MENU
+========================================= */
+function publicComment(c){
+  return {
+    id:String(c.id),
+    pseudo:String(c.pseudo||""),
+    text:String(c.text||""),
+    parentId:c.parentId?String(c.parentId):null,
+    createdAt:Number(c.createdAt||0),
+    likes:Array.isArray(c.likes)?c.likes.map(String):[]
+  };
+}
+
+app.get("/api/comments",(req,res)=>{
+  res.json({comments:(db.comments||[]).map(publicComment)});
+});
+
+app.post("/api/comments",(req,res)=>{
+  const user=findUser(req.body.pseudo);
+  const text=String(req.body.text||"").trim().slice(0,500);
+  if(!user)return res.status(404).json({message:"Utilisateur introuvable."});
+  if(!text)return res.status(400).json({message:"Le commentaire est vide."});
+  const parentId=req.body.parentId?String(req.body.parentId):null;
+  if(parentId&&!db.comments.some(c=>String(c.id)===parentId))return res.status(404).json({message:"Commentaire parent introuvable."});
+  const comment={id:createId(),pseudo:user.pseudo,text,parentId,createdAt:Date.now(),likes:[]};
+  db.comments.push(comment);
+  saveDatabase();
+  io.emit("commentCreated",publicComment(comment));
+  res.json({message:"Commentaire publié.",comment:publicComment(comment)});
+});
+
+app.post("/api/comments/:id/like",(req,res)=>{
+  const user=findUser(req.body.pseudo);
+  const comment=db.comments.find(c=>String(c.id)===String(req.params.id));
+  if(!user)return res.status(404).json({message:"Utilisateur introuvable."});
+  if(!comment)return res.status(404).json({message:"Commentaire introuvable."});
+  comment.likes=Array.isArray(comment.likes)?comment.likes.map(String):[];
+  const key=normalizePseudo(user.pseudo);
+  const index=comment.likes.findIndex(x=>normalizePseudo(x)===key);
+  let liked;
+  if(index>=0){comment.likes.splice(index,1);liked=false;}else{comment.likes.push(user.pseudo);liked=true;}
+  saveDatabase();
+  io.emit("commentUpdated",publicComment(comment));
+  res.json({liked,comment:publicComment(comment)});
+});
 
 /* =========================================
    API : ADMIN
