@@ -13,6 +13,8 @@ let selectedAdminUser = null;
 let classesData = [];
 let v26ReleaseActive = false;
 let halloweenActive = false;
+let maintenanceState = { active:false, startedAt:0, endsAt:0, durationMinutes:0 };
+let maintenanceTimerInterval = null;
 
 const ADMIN_PSEUDO = "creator2026";
 
@@ -321,6 +323,7 @@ async function refreshSavedAccount(pseudo) {
     saveCurrentUser();
     updateProfile();
     updateAdminButton();
+    refreshMaintenanceStatus();
     socket.emit("userOnline", { pseudo: currentUser.pseudo });
     return true;
   } catch (error) {
@@ -373,6 +376,7 @@ function loginUser(user) {
 
   updateProfile();
   updateAdminButton();
+  refreshMaintenanceStatus();
 }
 
 function saveCurrentUser() {
@@ -499,6 +503,59 @@ function updateXpBar() {
   }
 }
 
+
+/* =====================================
+   MAINTENANCE
+===================================== */
+
+function formatMaintenanceTime(ms){
+  const total=Math.max(0,Math.floor(ms/1000));
+  const minutes=Math.floor(total/60);
+  const seconds=total%60;
+  return `${minutes} min ${seconds} seconde${seconds===1?"":"s"}`;
+}
+
+function renderMaintenanceState(state){
+  maintenanceState={...(state||{active:false}),active:Boolean(state?.active)};
+  const screen=$("maintenanceScreen"),timer=$("maintenanceTimer");
+  if(!screen)return;
+  const blocked=maintenanceState.active && !isAdmin();
+  screen.classList.toggle("hidden",!blocked);
+  document.body.classList.toggle("maintenance-active",blocked);
+  const tick=()=>{
+    const left=Math.max(0,Number(maintenanceState.endsAt||0)-Date.now());
+    if(timer)timer.textContent=formatMaintenanceTime(left);
+    // À 0, l'écran reste volontairement affiché jusqu'à l'arrêt manuel par l'admin.
+  };
+  clearInterval(maintenanceTimerInterval);
+  tick();
+  if(blocked)maintenanceTimerInterval=setInterval(tick,1000);
+}
+
+async function refreshMaintenanceStatus(){
+  try{
+    const d=await apiJson("/api/maintenance");
+    renderMaintenanceState(d.maintenance);
+    if(isAdmin())renderAdminMaintenance(d.maintenance);
+  }catch(e){
+    console.warn("Impossible de récupérer la maintenance",e);
+  }
+}
+
+function renderAdminMaintenance(state){
+  const status=$("adminMaintenanceStatus");
+  const start=$("adminMaintenanceStart"),stop=$("adminMaintenanceStop");
+  const active=Boolean(state?.active);
+  const left=Math.max(0,Number(state?.endsAt||0)-Date.now());
+  if(status)status.textContent=active?`🛠️ Maintenance active • temps demandé : ${state.durationMinutes||0} min • restant : ${formatMaintenanceTime(left)}`:"Aucune maintenance active.";
+  if(start)start.disabled=active;
+  if(stop)stop.disabled=!active;
+}
+
+socket.on("maintenanceStatusChanged",state=>{
+  renderMaintenanceState(state);
+  if(isAdmin())renderAdminMaintenance(state);
+});
 
 /* =====================================
    ADMIN
@@ -2045,6 +2102,10 @@ function logout() {
   currentRoomCode = null;
   isRoomHost = false;
   selectedAdminUser = null;
+  maintenanceState={active:false,startedAt:0,endsAt:0,durationMinutes:0};
+  clearInterval(maintenanceTimerInterval);
+  $("maintenanceScreen")?.classList.add("hidden");
+  document.body.classList.remove("maintenance-active");
 
   $("menuScreen")
     ?.classList.add("hidden");
@@ -2294,16 +2355,28 @@ async function loadAdminV8(){
   if(stats){const users=d.users||[];const online=users.filter(u=>u.online).length;const coins=users.reduce((n,u)=>n+Number(u.coins||0),0);const xp=users.reduce((n,u)=>n+Number(u.xp||0),0);stats.innerHTML=`<div class="admin-stat"><b>👥</b><strong>${users.length}</strong><span>comptes</span></div><div class="admin-stat"><b>🟢</b><strong>${online}</strong><span>en ligne</span></div><div class="admin-stat"><b>🪙</b><strong>${coins}</strong><span>pièces</span></div><div class="admin-stat"><b>✨</b><strong>${xp}</strong><span>XP totale</span></div>`;}
   const announcementInput=$("announcementInput");
   if(announcementInput)announcementInput.value=d.announcement?.text||"";
-  if(sel)sel.innerHTML=`<option value="">Choisir une classe</option>`+d.classes.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} — ${x.price} 🪙 / ${x.chance}%</option>`).join("");if(selAll)selAll.innerHTML=`<option value="">Aucune classe</option>`+d.classes.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} — ${x.price} 🪙 / ${x.chance}%</option>`).join("");
+  if(sel)sel.innerHTML=`<option value="">Choisir une classe</option>`+d.classes.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} — ${x.price} 🪙 / ${x.chance}%</option>`).join("");const promoClass=$("adminPromoClass");if(promoClass)promoClass.innerHTML=`<option value="">Choisir une classe</option>`+d.classes.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("");if(selAll)selAll.innerHTML=`<option value="">Aucune classe</option>`+d.classes.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} — ${x.price} 🪙 / ${x.chance}%</option>`).join("");
   if(cc)cc.innerHTML=`<h4>🐺 Classes</h4>`+d.classes.map(x=>`<div class="admin-class-row"><b>${esc(x.name)}</b><span>${x.price} 🪙 • ${x.chance}%</span></div>`).join("");
   renderAdminBoostsV16(d.globalBoosts);
   renderAdminHalloween(d.halloween);
+  renderAdminMaintenance(d.maintenance);
   renderAdminV26Release(d.v26Release,d.classDiscount);
+  renderAdminPromoCodes(d.promoCodes||[]);
   if(uc)uc.innerHTML=`<h4>👥 ${d.users.length} joueur(s)</h4>`+d.users.map(u=>`<div class="admin-user-row"><span>${esc(u.icon||"🐺")} ${esc(u.pseudo)}</span><small>🪙${u.coins||0} • ✨${u.xp||0} • 🏆${u.trophies||0} • ${esc(u.rankedRank||"Bois")}</small><button class="secondary-button admin-select-user" data-pseudo="${esc(u.pseudo)}">Sélectionner</button></div>`).join("");uc?.querySelectorAll(".admin-select-user").forEach(b=>b.onclick=()=>{$("adminPlayerSearch").value=b.dataset.pseudo;$ ("adminSearchButton")?.click();});
  }catch(e){$("adminMessage").textContent="❌ "+e.message;}
 }
 $("adminButton")?.addEventListener("click",()=>setTimeout(loadAdminV8,50));
 $("adminRewardType")?.addEventListener("change",()=>{});
+
+
+function promoRewardLabel(r={}){const a=[];if(Number(r.coins||0))a.push(`${r.coins} 🪙`);if(Number(r.xp||0))a.push(`${r.xp} XP`);if(Number(r.trophies||0))a.push(`${r.trophies} 🏆`);if(Number(r.halloweenCandy||0))a.push(`${r.halloweenCandy} 🍬`);if(r.classId)a.push(`classe ${esc(r.classId)}`);if(r.title)a.push(`titre « ${esc(r.title)} »`);return a.join(" + ")||"récompense";}
+function renderAdminPromoCodes(codes){
+ const c=$("adminPromoCodesList"); if(!c)return;
+ if(!codes.length){c.innerHTML='<p class="admin-help">Aucun code créé.</p>';return;}
+ c.innerHTML=codes.map(x=>{const limit=Number(x.maxUses||0);const usage=limit?`${x.uses||0}/${limit}`:`${x.uses||0}/∞`;return `<div class="admin-promo-row"><div><strong>🎟️ ${esc(x.code)}</strong><small>${promoRewardLabel(x.reward)} • utilisations ${usage}</small></div><button type="button" class="danger-button admin-delete-promo" data-code="${esc(x.code)}">🗑️ Supprimer</button></div>`;}).join("");
+ c.querySelectorAll(".admin-delete-promo").forEach(b=>b.onclick=async()=>{if(!confirm(`Supprimer le code ${b.dataset.code} ?`))return;try{const d=await apiJson(`/api/admin/promo-codes/${encodeURIComponent(b.dataset.code)}`,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo})});$("adminPromoMessage").textContent="✅ "+d.message;loadAdminV8();}catch(e){$("adminPromoMessage").textContent="❌ "+e.message;}});
+}
+function syncAdminPromoRewardFields(){const type=$("adminPromoRewardType")?.value;$("adminPromoAmount")?.classList.toggle("hidden",type==="class"||type==="title");$("adminPromoClass")?.classList.toggle("hidden",type!=="class");$("adminPromoTitle")?.classList.toggle("hidden",type!=="title");}
 
 function renderAdminV26Release(release,discount){
   const active=Boolean(release?.active);
@@ -2357,6 +2430,30 @@ document.querySelectorAll(".admin-boost-btn").forEach(btn=>{
   });
 });
 
+$("adminMaintenanceStart")?.addEventListener("click",async()=>{
+  if(!isAdmin())return;
+  const msg=$("adminMaintenanceMessage");
+  const minutes=Number($("adminMaintenanceMinutes")?.value||0);
+  if(!Number.isFinite(minutes)||minutes<1){if(msg)msg.textContent="❌ Indique une durée d'au moins 1 minute.";return;}
+  if(msg)msg.textContent="⏳ Activation...";
+  try{
+    const d=await apiJson("/api/admin/maintenance/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo,durationMinutes:minutes})});
+    renderMaintenanceState(d.maintenance);renderAdminMaintenance(d.maintenance);
+    if(msg)msg.textContent="✅ "+d.message;
+  }catch(e){if(msg)msg.textContent="❌ "+e.message;}
+});
+
+$("adminMaintenanceStop")?.addEventListener("click",async()=>{
+  if(!isAdmin())return;
+  const msg=$("adminMaintenanceMessage");
+  if(msg)msg.textContent="⏳ Arrêt...";
+  try{
+    const d=await apiJson("/api/admin/maintenance/stop",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo})});
+    renderMaintenanceState(d.maintenance);renderAdminMaintenance(d.maintenance);
+    if(msg)msg.textContent="✅ "+d.message;
+  }catch(e){if(msg)msg.textContent="❌ "+e.message;}
+});
+
 $("adminV26UpdateButton")?.addEventListener("click",async()=>{
   if(!isAdmin())return;
   const btn=$("adminV26UpdateButton");
@@ -2405,6 +2502,17 @@ $("adminGivePersonalEventButton")?.addEventListener("click",async()=>{
 /* Récompense individuelle : trophées */
 // Le bouton de récompense individuelle est géré par le listener principal ci-dessus.
 
+
+$("adminPromoRewardType")?.addEventListener("change",syncAdminPromoRewardFields);
+syncAdminPromoRewardFields();
+$("adminCreatePromoButton")?.addEventListener("click",async()=>{
+ if(!isAdmin())return; const msg=$("adminPromoMessage"); const type=$("adminPromoRewardType")?.value||""; const body={adminPseudo:currentUser.pseudo,code:$("adminPromoCode")?.value||"",rewardType:type,amount:Number($("adminPromoAmount")?.value||0),classId:$("adminPromoClass")?.value||"",title:$("adminPromoTitle")?.value||"",maxUses:Number($("adminPromoMaxUses")?.value||0)};
+ if(msg)msg.textContent="⏳ Création...";
+ try{const d=await apiJson("/api/admin/promo-codes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});if(msg)msg.textContent="✅ "+d.message;$("adminPromoCode").value="";$("adminPromoAmount").value="";$("adminPromoTitle").value="";$("adminPromoMaxUses").value="";loadAdminV8();}catch(e){if(msg)msg.textContent="❌ "+e.message;}
+});
+
+$("promoCodeRedeemButton")?.addEventListener("click",async()=>{if(!currentUser)return;const input=$("promoCodeInput"),msg=$("promoCodeMessage"),code=input?.value?.trim()||"";if(!code){if(msg)msg.textContent="❌ Entre un code.";return;}if(msg)msg.textContent="⏳ Vérification...";try{const d=await apiJson("/api/promo-codes/redeem",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pseudo:currentUser.pseudo,code})});currentUser=d.user;saveCurrentUser();updateProfile();if(msg)msg.textContent="✅ "+d.message;if(input)input.value="";}catch(e){if(msg)msg.textContent="❌ "+e.message;}});
+
 /* CHAT */
 $("chatEnabledToggle")?.addEventListener("change",async()=>{try{const d=await apiJson("/api/settings/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pseudo:currentUser.pseudo,chatEnabled:$ ("chatEnabledToggle").checked})});currentUser=d.user;saveCurrentUser();}catch(e){alert("❌ "+e.message);}});
 
@@ -2419,7 +2527,7 @@ async function loadShopV8(){
   html+=(d.items||[]).map(i=>{const affordable=Number(currentUser.coins||0)>=Number(i.price||0);return `<div class="shop-card"><h3>🛒 ${esc(i.name)}</h3><p>${esc(i.description||"")}</p><p><span class="coin-icon"></span> ${i.price}</p>${i.id!=="blood_quarter"?label(i.id):""}<button class="main-button shop-buy" data-id="${esc(i.id)}" ${affordable?"":"disabled"}>${affordable?"Acheter":"Pas assez de pièces"}</button></div>`;}).join("");
   if(d.halloween?.active){
     const h=await apiJson(`/api/halloween/shop?pseudo=${encodeURIComponent(currentUser.pseudo)}`);
-    html+=`<div class="halloween-shop"><h2>🎃 Boutique Halloween — Semaine ${h.week}</h2><p class="halloween-candy-balance">🍬 Bonbons : <b>${h.candy}</b></p><p>Les bonbons se gagnent pendant les parties Halloween : 10 en jouant, 25 en gagnant.</p><div class="cards-list">${(h.items||[]).map(i=>{const ok=Number(h.candy||0)>=Number(i.price||0);return `<div class="shop-card halloween-shop-card"><h3>🎃 ${esc(i.name)}</h3><p>${esc(i.description)}</p><p>🍬 <b>${i.price}</b> bonbons</p><button class="main-button halloween-buy" data-id="${esc(i.id)}" ${ok?"":"disabled"}>${ok?"Échanger":"Pas assez de bonbons"}</button></div>`;}).join("")}</div></div>`;
+    html+=`<div class="halloween-boxes"><div class="halloween-box-intro"><h3>🐺 Boîtes du Loup-Garou</h3><p>Les boîtes hantées apparaissent pendant Halloween.</p></div><div class="halloween-box-grid"><div class="wolf-box"><div class="wolf-box-lid">🐺</div><div class="wolf-box-body">🎃</div><span>Boîte hantée</span></div><div class="wolf-box wolf-box-delay"><div class="wolf-box-lid">🐺</div><div class="wolf-box-body">🦇</div><span>Boîte maudite</span></div><div class="wolf-box wolf-box-delay2"><div class="wolf-box-lid">🐺</div><div class="wolf-box-body">👻</div><span>Boîte nocturne</span></div></div></div><div class="halloween-shop"><h2>🎃 Boutique Halloween — Semaine ${h.week}</h2><p class="halloween-candy-balance">🍬 Bonbons : <b>${h.candy}</b></p><p>Les bonbons se gagnent pendant les parties Halloween : 10 en jouant, 25 en gagnant.</p><div class="cards-list">${(h.items||[]).map(i=>{const ok=Number(h.candy||0)>=Number(i.price||0);return `<div class="shop-card halloween-shop-card"><h3>🎃 ${esc(i.name)}</h3><p>${esc(i.description)}</p><p>🍬 <b>${i.price}</b> bonbons</p><button class="main-button halloween-buy" data-id="${esc(i.id)}" ${ok?"":"disabled"}>${ok?"Échanger":"Pas assez de bonbons"}</button></div>`;}).join("")}</div></div>`;
   }
   c.innerHTML=html;
   c.querySelectorAll(".shop-buy").forEach(b=>b.onclick=async()=>{try{const x=await apiJson("/api/shop/buy",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pseudo:currentUser.pseudo,itemId:b.dataset.id})});currentUser=x.user;saveCurrentUser();updateProfile();loadShopV8();alert("✅ "+x.message);}catch(e){alert("❌ "+e.message);}});
@@ -2531,7 +2639,7 @@ $("rankedModeToggle")?.addEventListener("change",()=>{if(currentRoomCode&&isRoom
 /* Connexion : initialisation V8 */
 const _loginUserV8=loginUser;
 loginUser=function(user){_loginUserV8(user);ensureV8AfterLogin();};
-async function loadV26Release(){try{const d=await apiJson("/api/release");v26ReleaseActive=Boolean(d.v26Release?.active);const h=await apiJson("/api/halloween");halloweenActive=Boolean(h.event?.active);syncHalloweenCandy(halloweenActive);syncHalloweenMusic(halloweenActive);}catch(_){v26ReleaseActive=false;halloweenActive=false;syncHalloweenCandy(false);syncHalloweenMusic(false);}}
+async function loadV26Release(){try{const d=await apiJson("/api/release");v26ReleaseActive=Boolean(d.v26Release?.active);const h=await apiJson("/api/halloween");halloweenActive=Boolean(h.event?.active);const halloweenPersonal=hasPersonalEvent("halloween");syncHalloweenCandy(halloweenActive||halloweenPersonal);syncHalloweenMusic(halloweenActive||halloweenPersonal);}catch(_){v26ReleaseActive=false;halloweenActive=false;syncHalloweenCandy(false);syncHalloweenMusic(false);}}
 
 function ensureV8AfterLogin(){loadV26Release();if($("chatEnabledToggle"))$("chatEnabledToggle").checked=currentUser.chatEnabled!==false;loadNotificationsV8();refreshBloodMoonButton();if(isAdmin())loadAdminV8();}
 window.addEventListener("load",()=>setTimeout(ensureV8AfterLogin,250));
@@ -2585,7 +2693,11 @@ function syncHalloweenCandy(active){
 
 function hasPersonalEvent(id){return Array.isArray(currentUser?.personalEvents)&&currentUser.personalEvents.some(e=>e.id===id&&Number(e.until||0)>Date.now());}
 
+function syncHalloweenTheme(active){
+  document.body.classList.toggle("halloween-active",Boolean(active));
+}
 function syncHalloweenMusic(active){
+  syncHalloweenTheme(active);
   const box=$("halloweenMusicBox"), audio=$("halloweenMusic"), btn=$("halloweenMusicToggle");
   if(!box||!audio)return;
   box.classList.toggle("hidden",!active);
@@ -2600,10 +2712,11 @@ function syncHalloweenMusic(active){
 }
 socket.on("halloweenStatusChanged",d=>{
   halloweenActive=Boolean(d?.active);
-  syncHalloweenCandy(halloweenActive);
-  if(!halloweenActive&&currentUser){currentUser.halloweenCandy=0;updateProfile();}
+  const personal=hasPersonalEvent("halloween");
+  syncHalloweenCandy(halloweenActive||personal);
+  if(!halloweenActive&&!personal&&currentUser){currentUser.halloweenCandy=0;updateProfile();}
   loadClasses();
-  syncHalloweenMusic(halloweenActive);
+  syncHalloweenMusic(halloweenActive||personal);
   if($("shopList"))loadShopV8();
 });
 socket.on("v26Released",d=>{v26ReleaseActive=Boolean(d?.active);if(isAdmin())loadAdminV8();loadClasses();});
