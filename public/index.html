@@ -15,6 +15,18 @@
 
 <body>
 
+  <!-- MAINTENANCE PLEIN ÉCRAN -->
+  <section id="maintenanceScreen" class="maintenance-screen hidden" aria-live="polite">
+    <div class="maintenance-content">
+      <div class="maintenance-icon">🛠️</div>
+      <h1>MAINTENANCE EN COURS</h1>
+      <p>Le jeu est temporairement inaccessible.</p>
+      <div id="maintenanceTimer" class="maintenance-timer">0 min 0 seconde</div>
+      <p class="maintenance-small">Merci de patienter pendant la maintenance.</p>
+    </div>
+  </section>
+
+
   <!-- =====================================
        ÉCRAN DE CONNEXION
   ====================================== -->
@@ -659,6 +671,16 @@
         class="cards-list"
       ></div>
 
+      <div class="promo-redeem-card">
+        <h3>🎟️ Code cadeau</h3>
+        <p>Entre un code pour récupérer sa récompense. Chaque code ne peut être utilisé qu'une seule fois par compte.</p>
+        <div class="promo-redeem-row">
+          <input id="promoCodeInput" type="text" maxlength="32" placeholder="Entre ton code">
+          <button id="promoCodeRedeemButton" type="button" class="main-button">🎁 Utiliser</button>
+        </div>
+        <p id="promoCodeMessage"></p>
+      </div>
+
     </section>
 
 
@@ -703,6 +725,18 @@
         <div id="adminDashboardStats" class="admin-dashboard-stats"></div>
         <p class="admin-help">Les actions administrateur sont appliquées directement au serveur et sauvegardées.</p>
 
+      </div>
+
+      <div class="admin-card admin-maintenance-card">
+        <h3>🛠️ Maintenance du jeu</h3>
+        <p>Quand la maintenance est active, seul <strong>creator2026</strong> peut continuer à utiliser le jeu.</p>
+        <div class="admin-maintenance-controls">
+          <input id="adminMaintenanceMinutes" type="number" min="1" max="10080" value="30" placeholder="Durée en minutes">
+          <button id="adminMaintenanceStart" type="button" class="main-button">🛠️ Lancer la maintenance</button>
+          <button id="adminMaintenanceStop" type="button" class="danger-button">⛔ Arrêter la maintenance</button>
+        </div>
+        <p id="adminMaintenanceStatus">Aucune maintenance active.</p>
+        <p id="adminMaintenanceMessage"></p>
       </div>
 
       <div class="admin-card admin-v26-release-card">
@@ -847,6 +881,30 @@
         </select>
         <button id="adminGivePersonalEventButton" type="button" class="main-button">⚡ Donner l'événement pendant 10 min</button>
         <p id="adminPersonalEventMessage"></p>
+      </div>
+
+
+      <div class="admin-card admin-code-card">
+        <h3>🎟️ Codes de récompense</h3>
+        <p>Crée des codes utilisables une seule fois par compte. Mets <strong>0</strong> en limite pour un code illimité.</p>
+        <div class="admin-code-grid">
+          <input id="adminPromoCode" type="text" maxlength="32" placeholder="Code, ex. HALLOWEEN2026">
+          <select id="adminPromoRewardType">
+            <option value="coins">🪙 Pièces</option>
+            <option value="xp">✨ XP</option>
+            <option value="trophies">🏆 Trophées</option>
+            <option value="halloweenCandy">🍬 Bonbons Halloween</option>
+            <option value="class">🐺 Classe</option>
+            <option value="title">🏷️ Titre</option>
+          </select>
+          <input id="adminPromoAmount" type="number" min="1" placeholder="Quantité">
+          <select id="adminPromoClass" class="hidden"><option value="">Choisir une classe</option></select>
+          <input id="adminPromoTitle" class="hidden" type="text" maxlength="80" placeholder="Titre à donner">
+          <input id="adminPromoMaxUses" type="number" min="0" placeholder="Limite d'utilisations (0 = infini)">
+        </div>
+        <button id="adminCreatePromoButton" type="button" class="main-button">➕ Créer le code</button>
+        <p id="adminPromoMessage"></p>
+        <div id="adminPromoCodesList" class="admin-promo-list"></div>
       </div>
 
       <div class="admin-card">
