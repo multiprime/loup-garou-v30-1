@@ -77,6 +77,10 @@ function defaultDatabase() {
     v26Release: { active: false, version: 25, updatedAt: 0 },
     classDiscount: { percent: 0, until: 0 },
     personalEvents: {},
+    promoCodes: {},
+    maintenance: { active: false, startedAt: 0, endsAt: 0, durationMinutes: 0 },
+    bloodMoonTitleHistory: [],
+    bloodMoonWeekTitles: {},
     globalBoosts: {
       coins: { multiplier: 1, until: 0 },
       xp: { multiplier: 1, until: 0 },
@@ -93,6 +97,14 @@ function mergeDatabase(database) {
   merged.v26Release = { ...defaultDatabase().v26Release, ...(database?.v26Release || {}) };
   merged.classDiscount = { ...defaultDatabase().classDiscount, ...(database?.classDiscount || {}) };
   merged.personalEvents = (database?.personalEvents && typeof database.personalEvents === "object") ? database.personalEvents : {};
+  merged.promoCodes = (database?.promoCodes && typeof database.promoCodes === "object") ? database.promoCodes : {};
+  merged.maintenance = { ...defaultDatabase().maintenance, ...(database?.maintenance || {}) };
+  merged.maintenance.active = Boolean(database?.maintenance?.active);
+  merged.maintenance.startedAt = Number(database?.maintenance?.startedAt || 0);
+  merged.maintenance.endsAt = Number(database?.maintenance?.endsAt || 0);
+  merged.maintenance.durationMinutes = Number(database?.maintenance?.durationMinutes || 0);
+  merged.bloodMoonTitleHistory = Array.isArray(database?.bloodMoonTitleHistory) ? database.bloodMoonTitleHistory : [];
+  merged.bloodMoonWeekTitles = (database?.bloodMoonWeekTitles && typeof database.bloodMoonWeekTitles === "object") ? database.bloodMoonWeekTitles : {};
   merged.halloweenCandyClearedAt = Number(database?.halloweenCandyClearedAt || 0);
   merged.halloweenShopSeason = Number(database?.halloweenShopSeason || 0);
   ["coins", "xp", "trophies"].forEach(type => {
@@ -568,7 +580,21 @@ const BLOOD_MOON_TITLES=[
   "Chasseur carmin","Ombre du croissant","Hurleur de rubis","Sentinelle rouge","Loup nocturne","Éclipse carmine","Maître lunaire","Griffe de sang",
   "Veilleur de rubis","Seigneur écarlate","Traqueur lunaire","Gardien de l'éclipse"
 ];
-function getWeeklyBloodMoonTitle(weekKey){let n=0;for(const c of String(weekKey))n=(n*31+c.charCodeAt(0))>>>0;return BLOOD_MOON_TITLES[n%BLOOD_MOON_TITLES.length];}
+function getWeeklyBloodMoonTitle(weekKey){
+  const key=String(weekKey);
+  db.bloodMoonWeekTitles=db.bloodMoonWeekTitles||{};
+  if(db.bloodMoonWeekTitles[key]) return db.bloodMoonWeekTitles[key];
+  db.bloodMoonTitleHistory=Array.isArray(db.bloodMoonTitleHistory)?db.bloodMoonTitleHistory:[];
+  const used=new Set(db.bloodMoonTitleHistory);
+  const available=BLOOD_MOON_TITLES.filter(t=>!used.has(t));
+  let n=0; for(const c of key)n=(n*31+c.charCodeAt(0))>>>0;
+  const pool=available.length?available:BLOOD_MOON_TITLES;
+  const title=pool[n%pool.length];
+  db.bloodMoonWeekTitles[key]=title;
+  if(!db.bloodMoonTitleHistory.includes(title)) db.bloodMoonTitleHistory.push(title);
+  saveDatabase();
+  return title;
+}
 function getBloodMoonStatus(){
   const now=new Date(),p=getParisDateParts(now);
   const manualActive = Number(db.bloodMoonManualUntil || 0) > Date.now();
@@ -838,6 +864,7 @@ function ensureUserState(user) {
   user.boosts.double_trophies_until = Number(user.boosts.double_trophies_until || 0);
   user.halloweenCandy = Math.max(0, Number(user.halloweenCandy || 0));
   user.personalEvents = user.personalEvents && typeof user.personalEvents === "object" ? user.personalEvents : {};
+  user.usedPromoCodes = Array.isArray(user.usedPromoCodes) ? user.usedPromoCodes : [];
 }
 function getRankedSeasonKey(date=new Date()) {
   const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Paris",year:"numeric",month:"2-digit"}).formatToParts(date);
@@ -1703,7 +1730,16 @@ app.post("/api/blood-moon/claim",(req,res)=>{
   if(!st.active)return res.status(400).json({message:"La Lune de Sang est terminée."});
   const p=getBloodProgress(user,st.weekKey); const q=Number(req.body.quarter); if(![1,2,3,4].includes(q))return res.status(400).json({message:"Quart invalide."});
   if(Number(p.quarters||0)<q)return res.status(400).json({message:"Ce palier n'est pas encore atteint."}); p.claimed=p.claimed||[]; if(p.claimed.includes(q))return res.status(400).json({message:"Palier déjà récupéré."});
-  const rewards={1:{coins:100},2:{xp:200},3:{xp:500},4:{title:p.title||getWeeklyBloodMoonTitle(st.weekKey)}}; const reward=rewards[q]; if(q<4)applyReward(user,reward); else {user.titles=user.titles||["Nouveau Villageois"]; if(!user.titles.includes(reward.title))user.titles.push(reward.title);} p.claimed.push(q); saveDatabase(); emitProfile(user); res.json({message:"Récompense Lune de Sang récupérée !",user:publicUser(user),progress:bloodMoonPayload(user)});
+  const rewards={1:{coins:100},2:{xp:200},3:{xp:500},4:{title:p.title||getWeeklyBloodMoonTitle(st.weekKey)}}; const reward=rewards[q];
+  if(q<4) applyReward(user,reward);
+  else {
+    user.titles=user.titles||["Nouveau Villageois"];
+    if(user.titles.includes(reward.title)){
+      return res.status(400).json({message:"Ce titre a déjà été obtenu sur ce compte. Ce titre ne peut être obtenu qu'une seule fois."});
+    }
+    user.titles.push(reward.title);
+  }
+  p.claimed.push(q); saveDatabase(); emitProfile(user); res.json({message:"Récompense Lune de Sang récupérée !",user:publicUser(user),progress:bloodMoonPayload(user)});
 });
 
 
@@ -1711,6 +1747,44 @@ app.post("/api/blood-moon/claim",(req,res)=>{
    API : ADMIN - ÉVÉNEMENT HALLOWEEN
 ========================================= */
 app.get('/api/halloween',(req,res)=>res.json({event:getHalloweenStatus()}));
+function getMaintenanceStatus() {
+  const m = db.maintenance || { active:false, startedAt:0, endsAt:0, durationMinutes:0 };
+  return {
+    active: Boolean(m.active),
+    startedAt: Number(m.startedAt || 0),
+    endsAt: Number(m.endsAt || 0),
+    durationMinutes: Number(m.durationMinutes || 0),
+    remainingMs: Math.max(0, Number(m.endsAt || 0) - Date.now())
+  };
+}
+
+app.get("/api/maintenance", (req,res)=>{
+  res.json({ maintenance: getMaintenanceStatus() });
+});
+
+app.post("/api/admin/maintenance/start", (req,res)=>{
+  if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
+  const minutes = Number(req.body.durationMinutes);
+  if(!Number.isFinite(minutes) || minutes < 1 || minutes > 10080){
+    return res.status(400).json({message:"La durée doit être comprise entre 1 minute et 7 jours."});
+  }
+  const now=Date.now();
+  db.maintenance={active:true,startedAt:now,endsAt:now+Math.round(minutes*60000),durationMinutes:minutes};
+  saveDatabase();
+  const maintenance=getMaintenanceStatus();
+  io.emit("maintenanceStatusChanged", maintenance);
+  res.json({message:`🛠️ Maintenance activée pendant ${minutes} minute(s).`,maintenance});
+});
+
+app.post("/api/admin/maintenance/stop", (req,res)=>{
+  if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
+  db.maintenance={active:false,startedAt:0,endsAt:0,durationMinutes:0};
+  saveDatabase();
+  const maintenance=getMaintenanceStatus();
+  io.emit("maintenanceStatusChanged", maintenance);
+  res.json({message:"🛠️ Maintenance arrêtée. Le jeu est de nouveau accessible.",maintenance});
+});
+
 app.post('/api/admin/halloween/start',(req,res)=>{if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:'Accès refusé.'});try{const event=startHalloweenWeek(req.body.week);res.json({message:`🎃 Semaine ${event.week} d'Halloween activée pendant 7 jours.`,event});}catch(e){res.status(400).json({message:e.message});}});
 app.post('/api/admin/halloween/stop',(req,res)=>{if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:'Accès refusé.'});const was=getHalloweenStatus().active,event=stopHalloweenEvent();res.json({message:was?'🛑 Événement Halloween arrêté manuellement.':'🛑 Événement Halloween déjà arrêté.',event});});
 
@@ -2216,9 +2290,72 @@ app.post(
 );
 
 
+
+function normalizePromoCode(value){ return String(value||"").trim().toUpperCase().replace(/\s+/g,""); }
+function publicPromoCode(code){
+  if(!code)return null;
+  return {code:code.code,reward:code.reward||{},maxUses:Number(code.maxUses||0),uses:Number(code.uses||0),active:code.active!==false,createdAt:Number(code.createdAt||0),remaining:Number(code.maxUses||0)>0?Math.max(0,Number(code.maxUses)-Number(code.uses||0)):null};
+}
+function promoRewardDescription(reward={}){
+  const parts=[]; const coins=Math.max(0,Number(reward.coins||0)),xp=Math.max(0,Number(reward.xp||0)),trophies=Math.max(0,Number(reward.trophies||0)),candy=Math.max(0,Number(reward.halloweenCandy||0));
+  if(coins)parts.push(`${coins} 🪙`); if(xp)parts.push(`${xp} XP`); if(trophies)parts.push(`${trophies} 🏆`); if(candy)parts.push(`${candy} 🍬`); if(reward.classId)parts.push(`classe ${reward.classId}`); if(reward.title)parts.push(`titre « ${reward.title} »`);
+  return parts.join(" + ")||"récompense";
+}
+function sanitizePromoReward(body={}){
+  const type=String(body.rewardType||""); const amount=Math.max(0,Math.floor(Number(body.amount||0))); const r={coins:0,xp:0,trophies:0,halloweenCandy:0,classId:"",title:""};
+  if(type==="coins")r.coins=amount; else if(type==="xp")r.xp=amount; else if(type==="trophies")r.trophies=amount; else if(type==="halloweenCandy")r.halloweenCandy=amount; else if(type==="class")r.classId=String(body.classId||"").trim(); else if(type==="title")r.title=String(body.title||"").trim().slice(0,80); else return null;
+  if(type!=="class"&&type!=="title"&&amount<=0)return null;
+  if(type==="class"&&!CLASSES.some(c=>c.id===r.classId))return null;
+  if(type==="title"&&!r.title)return null;
+  return r;
+}
+app.get("/api/promo-codes",(req,res)=>{
+  const user=findUser(req.query.pseudo||""); if(!user)return res.status(404).json({message:"Utilisateur introuvable."});
+  res.json({usedCodes:Array.isArray(user.usedPromoCodes)?user.usedPromoCodes:[]});
+});
+app.post("/api/promo-codes/redeem",(req,res)=>{
+  const user=findUser(req.body.pseudo), codeText=normalizePromoCode(req.body.code);
+  if(!user)return res.status(404).json({message:"Utilisateur introuvable."});
+  if(!codeText)return res.status(400).json({message:"Entre un code."});
+  const code=db.promoCodes?.[codeText];
+  if(!code||code.active===false)return res.status(404).json({message:"Code invalide ou supprimé."});
+  ensureUserState(user);
+  user.usedPromoCodes=Array.isArray(user.usedPromoCodes)?user.usedPromoCodes:[];
+  if(user.usedPromoCodes.includes(codeText))return res.status(400).json({message:"Tu as déjà utilisé ce code sur ce compte."});
+  const maxUses=Number(code.maxUses||0), uses=Number(code.uses||0);
+  if(maxUses>0&&uses>=maxUses)return res.status(400).json({message:"Ce code a atteint sa limite d'utilisation."});
+  const reward=code.reward||{};
+  if(reward.classId&&!CLASSES.some(c=>c.id===reward.classId))return res.status(400).json({message:"La récompense de ce code n'est plus disponible."});
+  if(reward.title){user.titles=user.titles||["Nouveau Villageois"];if(user.titles.includes(reward.title))return res.status(400).json({message:"Tu possèdes déjà le titre de ce code."});}
+  applyReward(user,{coins:Math.max(0,Number(reward.coins||0)),xp:Math.max(0,Number(reward.xp||0)),trophies:Math.max(0,Number(reward.trophies||0)),halloweenCandy:Math.max(0,Number(reward.halloweenCandy||0)),classId:reward.classId||""});
+  if(reward.title)user.titles.push(reward.title);
+  user.usedPromoCodes.push(codeText); code.uses=uses+1; code.lastUsedAt=Date.now(); code.lastUsedBy=user.pseudo;
+  saveDatabase(); emitProfile(user);
+  addNotification(user.pseudo,{title:"🎁 Code utilisé",message:`Code ${codeText} accepté : ${promoRewardDescription(reward)}.`,type:"promoCode"});
+  res.json({message:`Code accepté ! Tu as reçu ${promoRewardDescription(reward)}.`,user:publicUser(user)});
+});
+app.get("/api/admin/promo-codes",(req,res)=>{
+  if(normalizePseudo(req.query.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
+  res.json({codes:Object.values(db.promoCodes||{}).map(publicPromoCode).sort((a,b)=>String(a.code).localeCompare(String(b.code)))});
+});
+app.post("/api/admin/promo-codes",(req,res)=>{
+  if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
+  const code=normalizePromoCode(req.body.code); if(!/^[A-Z0-9_-]{3,32}$/.test(code))return res.status(400).json({message:"Code invalide : 3 à 32 caractères, lettres/chiffres/_/- uniquement."});
+  if(db.promoCodes?.[code])return res.status(400).json({message:"Ce code existe déjà."});
+  const reward=sanitizePromoReward(req.body); if(!reward)return res.status(400).json({message:"Récompense invalide ou incomplète."});
+  const rawLimit=Number(req.body.maxUses||0); const maxUses=Number.isFinite(rawLimit)&&rawLimit>0?Math.floor(rawLimit):0;
+  db.promoCodes=db.promoCodes||{}; db.promoCodes[code]={code,reward,maxUses,uses:0,active:true,createdAt:Date.now()}; saveDatabase();
+  res.json({message:`Code ${code} créé.`,code:publicPromoCode(db.promoCodes[code])});
+});
+app.delete("/api/admin/promo-codes/:code",(req,res)=>{
+  if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
+  const code=normalizePromoCode(req.params.code); if(!db.promoCodes?.[code])return res.status(404).json({message:"Code introuvable."});
+  delete db.promoCodes[code]; saveDatabase(); res.json({message:`Code ${code} supprimé.`});
+});
+
 app.get("/api/admin/bootstrap",(req,res)=>{
   if(normalizePseudo(req.query.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
-  res.json({users:db.users.map(publicUser),classes:getPublicClasses(),announcement:db.announcements,globalBoosts:getGlobalBoostPayload(),halloween:getHalloweenStatus(),v26Release:db.v26Release||{active:false,version:25,updatedAt:0},classDiscount:{percent:getClassDiscountPercent(),until:Number(db.classDiscount?.until||0)}});
+  res.json({users:db.users.map(publicUser),classes:getPublicClasses(),announcement:db.announcements,globalBoosts:getGlobalBoostPayload(),halloween:getHalloweenStatus(),maintenance:getMaintenanceStatus(),v26Release:db.v26Release||{active:false,version:25,updatedAt:0},promoCodes:Object.values(db.promoCodes||{}).map(publicPromoCode),classDiscount:{percent:getClassDiscountPercent(),until:Number(db.classDiscount?.until||0)}});
 });
 
 app.post("/api/admin/reward-all-now",(req,res)=>{
