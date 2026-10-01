@@ -1801,12 +1801,20 @@ app.post("/api/blood-moon/claim",(req,res)=>{
 app.get('/api/halloween',(req,res)=>res.json({event:getHalloweenStatus()}));
 function getMaintenanceStatus() {
   const m = db.maintenance || { active:false, startedAt:0, endsAt:0, durationMinutes:0 };
+  const endsAt = Number(m.endsAt || 0);
+  const active = Boolean(m.active);
+  if (active && endsAt > 0 && endsAt <= Date.now()) {
+    // Expiration automatique : à 0, la maintenance s'arrête sans action manuelle.
+    db.maintenance = { active:false, startedAt:0, endsAt:0, durationMinutes:0 };
+    saveDatabase();
+    return { active:false, startedAt:0, endsAt:0, durationMinutes:0, remainingMs:0, expired:true };
+  }
   return {
-    active: Boolean(m.active),
+    active,
     startedAt: Number(m.startedAt || 0),
-    endsAt: Number(m.endsAt || 0),
+    endsAt,
     durationMinutes: Number(m.durationMinutes || 0),
-    remainingMs: Math.max(0, Number(m.endsAt || 0) - Date.now())
+    remainingMs: Math.max(0, endsAt - Date.now())
   };
 }
 
