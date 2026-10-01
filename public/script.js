@@ -11,7 +11,7 @@ let currentRoomCode = null;
 let isRoomHost = false;
 let selectedAdminUser = null;
 let classesData = [];
-let v26ReleaseActive = false;
+let v26ReleaseActive = true;
 let halloweenActive = false;
 let maintenanceState = { active:false, startedAt:0, endsAt:0, durationMinutes:0 };
 let maintenanceTimerInterval = null;
@@ -396,6 +396,7 @@ function saveCurrentUser() {
 
 function updateProfile() {
   if (!currentUser) return;
+  if ($("playerIdentifier")) $("playerIdentifier").textContent = currentUser.identifier || (currentUser.id ? `LG-${String(currentUser.id).toUpperCase()}` : "LG-...");
 
   if ($("playerName")) {
     $("playerName").textContent =
@@ -525,11 +526,8 @@ function renderMaintenanceState(state){
   maintenanceState={...(state||{active:false}),active:Boolean(state?.active)};
   const screen=$("maintenanceScreen"),timer=$("maintenanceTimer");
   if(!screen)return;
-  let adminSession=isAdmin();
-  if(!adminSession){
-    try{const saved=JSON.parse(localStorage.getItem("lgv7_user")||"null");adminSession=String(saved?.pseudo||"").toLowerCase()===ADMIN_PSEUDO.toLowerCase();}catch(_){}
-  }
-  const blocked=maintenanceState.active && !adminSession;
+  const adminSession=isAdmin();
+  const blocked=maintenanceState.active && Boolean(currentUser) && !adminSession;
   screen.classList.toggle("hidden",!blocked);
   document.body.classList.toggle("maintenance-active",blocked);
   const tick=()=>{
@@ -1690,6 +1688,7 @@ $("adminSearchButton")
               ${user.icon || "🐺"}
               ${user.pseudo}
             </h3>
+            <p>🆔 Identifiant : <strong>${esc(user.identifier||user.id||"")}</strong></p>
 
             <p>
               ⭐ Niveau :
@@ -2190,7 +2189,7 @@ $("sendResetButton")
 
       if (!pseudo) {
         $("forgotMessage").textContent =
-          "❌ Entre ton pseudo.";
+          "❌ Entre ton identifiant de compte.";
 
         return;
       }
@@ -2198,7 +2197,7 @@ $("sendResetButton")
       try {
         const response =
           await fetch(
-            "/api/password/forgot",
+            "/api/recovery/request",
             {
               method: "POST",
 
@@ -2208,7 +2207,7 @@ $("sendResetButton")
               },
 
               body: JSON.stringify({
-                pseudo
+                identifier: pseudo
               })
             }
           );
@@ -2258,8 +2257,10 @@ window.addEventListener(
         );
       }
 
-      loginUser(user);
-      refreshSavedAccount(user.pseudo);
+      refreshSavedAccount(user.pseudo).then(ok=>{
+        if(!ok){ currentUser=null; showLogin(); return; }
+        loginUser(currentUser);
+      });
 
     } catch (error) {
       console.error(error);
@@ -2339,6 +2340,10 @@ loadRanking = async function(){
 function renderNotification(n){
   const wrap=document.createElement("div");wrap.className="notification-card";wrap.dataset.notificationId=n.id;
   wrap.innerHTML=`<strong>${esc(n.title)}</strong><p>${esc(n.message)}</p>`;
+  if(n.action?.type==="recoveryApproved" && n.action.token){
+    const b=document.createElement("button");b.className="main-button";b.textContent="🔐 Récupérer mon compte";
+    b.onclick=async()=>{try{const d=await apiJson("/api/recovery/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:n.action.token})});loginUser(d.user);wrap.remove();}catch(e){alert("❌ "+e.message);}};wrap.appendChild(b);
+  }
   if(n.reward&&!n.claimed){
     const b=document.createElement("button");b.className="main-button";b.textContent="Récupérer";
     b.onclick=async()=>{try{const d=await apiJson("/api/notifications/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pseudo:currentUser.pseudo,notificationId:n.id})});currentUser=d.user;saveCurrentUser();updateProfile();wrap.remove();}catch(e){alert("❌ "+e.message);}};
@@ -2356,6 +2361,13 @@ socket.on("roomInvitation",()=>loadNotificationsV8());
 socket.on("roomInviteResult",()=>loadNotificationsV8());
 
 /* ADMIN */
+function renderAdminRecoveryRequests(requests){
+  const c=$("adminRecoveryRequests"); if(!c)return;
+  if(!requests.length){c.innerHTML="<p class=\"admin-help\">Aucune demande en attente.</p>";return;}
+  c.innerHTML=requests.map(r=>`<div class="admin-user-row"><div><strong>🆘 ${esc(r.pseudo)}</strong><small>🆔 ${esc(r.identifier)}</small></div><button type="button" class="main-button admin-recovery-approve" data-id="${esc(r.identifier)}">✅ Valider la récupération</button></div>`).join("");
+  c.querySelectorAll(".admin-recovery-approve").forEach(b=>b.onclick=async()=>{try{const d=await apiJson("/api/admin/recovery/approve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo,identifier:b.dataset.id})});$("adminRecoveryMessage").textContent="✅ "+d.message;loadAdminV8();}catch(e){$("adminRecoveryMessage").textContent="❌ "+e.message;}});
+}
+
 async function loadAdminV8(){
  if(!isAdmin())return;
  try{
@@ -2370,8 +2382,8 @@ async function loadAdminV8(){
   renderAdminBoostsV16(d.globalBoosts);
   renderAdminHalloween(d.halloween);
   renderAdminMaintenance(d.maintenance);
-  renderAdminV26Release(d.v26Release,d.classDiscount);
   renderAdminPromoCodes(d.promoCodes||[]);
+  renderAdminRecoveryRequests(d.recoveryRequests||[]);
   if(uc)uc.innerHTML=`<h4>👥 ${d.users.length} joueur(s)</h4>`+d.users.map(u=>`<div class="admin-user-row"><span>${esc(u.icon||"🐺")} ${esc(u.pseudo)}</span><small>🪙${u.coins||0} • ✨${u.xp||0} • 🏆${u.trophies||0} • ${esc(u.rankedRank||"Bois")}</small><button class="secondary-button admin-select-user" data-pseudo="${esc(u.pseudo)}">Sélectionner</button></div>`).join("");uc?.querySelectorAll(".admin-select-user").forEach(b=>b.onclick=()=>{$("adminPlayerSearch").value=b.dataset.pseudo;$ ("adminSearchButton")?.click();});
  }catch(e){$("adminMessage").textContent="❌ "+e.message;}
 }
@@ -2387,16 +2399,6 @@ function renderAdminPromoCodes(codes){
  c.querySelectorAll(".admin-delete-promo").forEach(b=>b.onclick=async()=>{if(!confirm(`Supprimer le code ${b.dataset.code} ?`))return;try{const d=await apiJson(`/api/admin/promo-codes/${encodeURIComponent(b.dataset.code)}`,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo})});$("adminPromoMessage").textContent="✅ "+d.message;loadAdminV8();}catch(e){$("adminPromoMessage").textContent="❌ "+e.message;}});
 }
 function syncAdminPromoRewardFields(){const type=$("adminPromoRewardType")?.value;$("adminPromoAmount")?.classList.toggle("hidden",type==="class"||type==="title");$("adminPromoClass")?.classList.toggle("hidden",type!=="class");$("adminPromoTitle")?.classList.toggle("hidden",type!=="title");}
-
-function renderAdminV26Release(release,discount){
-  const active=Boolean(release?.active);
-  const st=$("adminV26Status");
-  if(st)st.textContent=active?`✅ V26 active depuis ${new Date(Number(release.updatedAt||Date.now())).toLocaleString("fr-FR")}`:"🔒 V26 préparée mais pas encore mise à jour";
-  const btn=$("adminV26UpdateButton");
-  if(btn){btn.classList.toggle("hidden",active);btn.disabled=active;}
-  const ds=$("adminClassDiscountStatus");
-  if(ds){const pct=Number(discount?.percent||0),until=Number(discount?.until||0);ds.textContent=pct&&until>Date.now()?`🎟️ ${pct}% actif • encore ${Math.ceil((until-Date.now())/60000)} min`:"Aucune réduction active";}
-}
 
 function renderAdminHalloween(status){const el=$("adminHalloweenStatus");if(!el)return;if(!status?.active){el.textContent=status?.week?`🎃 Semaine ${status.week} terminée — événement arrêté.`:"🎃 Événement désactivé.";return;}const left=Math.max(0,Number(status.endsAt||0)-Date.now()),d=Math.floor(left/86400000),h=Math.floor(left%86400000/3600000);el.textContent=`🎃 Semaine ${status.week} active • encore ${d}j ${h}h`;}
 function renderAdminBoostsV16(boosts){
@@ -2464,22 +2466,6 @@ $("adminMaintenanceStop")?.addEventListener("click",async()=>{
   }catch(e){if(msg)msg.textContent="❌ "+e.message;}
 });
 
-$("adminV26UpdateButton")?.addEventListener("click",async()=>{
-  if(!isAdmin())return;
-  const btn=$("adminV26UpdateButton");
-  if(btn)btn.disabled=true;
-  try{
-    const d=await apiJson("/api/admin/v26/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo})});
-    v26ReleaseActive=true;
-    $("adminV26Message").textContent="✅ "+d.message;
-    renderAdminV26Release(d.release);
-    loadClasses();
-  }catch(e){
-    $("adminV26Message").textContent="❌ "+e.message;
-    try{const r=await apiJson("/api/release");renderAdminV26Release(r.v26Release);}catch(_){}
-    if(!v26ReleaseActive&&btn)btn.disabled=false;
-  }
-});
 [10,25,50,75,0].forEach(pct=>{$(`.admin-discount-btn[data-pct="${pct}"]`)?.addEventListener("click",async()=>{if(!isAdmin())return;try{const d=await apiJson("/api/admin/class-discount",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo,percent:pct,durationMinutes:10})});$("adminClassDiscountMessage").textContent="✅ "+d.message;renderAdminV26Release(null,d.classDiscount);loadClasses();}catch(e){$("adminClassDiscountMessage").textContent="❌ "+e.message;}});});
 
 document.querySelectorAll(".admin-halloween-start").forEach(btn=>btn.addEventListener("click",async()=>{if(!isAdmin())return;try{const d=await apiJson("/api/admin/halloween/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo,week:Number(btn.dataset.week)})});$("adminHalloweenMessage").textContent="✅ "+d.message;renderAdminHalloween(d.event);}catch(e){$("adminHalloweenMessage").textContent="❌ "+e.message;}}));
@@ -2649,7 +2635,7 @@ $("rankedModeToggle")?.addEventListener("change",()=>{if(currentRoomCode&&isRoom
 /* Connexion : initialisation V8 */
 const _loginUserV8=loginUser;
 loginUser=function(user){_loginUserV8(user);ensureV8AfterLogin();};
-async function loadV26Release(){try{const d=await apiJson("/api/release");v26ReleaseActive=Boolean(d.v26Release?.active);const h=await apiJson("/api/halloween");halloweenActive=Boolean(h.event?.active);const halloweenPersonal=hasPersonalEvent("halloween");syncHalloweenCandy(halloweenActive||halloweenPersonal);syncHalloweenMusic(halloweenActive||halloweenPersonal);}catch(_){v26ReleaseActive=false;halloweenActive=false;syncHalloweenCandy(false);syncHalloweenMusic(false);}}
+async function loadV26Release(){try{v26ReleaseActive=true;const h=await apiJson("/api/halloween");halloweenActive=Boolean(h.event?.active);const halloweenPersonal=hasPersonalEvent("halloween");syncHalloweenCandy(halloweenActive||halloweenPersonal);syncHalloweenMusic(halloweenActive||halloweenPersonal);}catch(_){v26ReleaseActive=true;halloweenActive=false;syncHalloweenCandy(false);syncHalloweenMusic(false);}}
 
 function ensureV8AfterLogin(){loadV26Release();if($("chatEnabledToggle"))$("chatEnabledToggle").checked=currentUser.chatEnabled!==false;loadNotificationsV8();refreshBloodMoonButton();if(isAdmin())loadAdminV8();}
 window.addEventListener("load",()=>setTimeout(ensureV8AfterLogin,250));
