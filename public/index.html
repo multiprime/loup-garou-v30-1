@@ -131,13 +131,22 @@
       </form>
 
 
-      <button
-        id="forgotPasswordButton"
-        type="button"
-        class="link-button"
-      >
-        Mot de passe oublié ?
-      </button>
+      <div class="auth-help-row">
+        <button
+          id="forgotPasswordButton"
+          type="button"
+          class="link-button"
+        >
+          Mot de passe oublié ?
+        </button>
+        <button
+          id="authHelpButton"
+          type="button"
+          class="link-button"
+        >
+          🆘 Aide
+        </button>
+      </div>
 
       <p id="authMessage"></p>
 
@@ -145,6 +154,30 @@
 
   </section>
 
+
+  <!-- =====================================
+       AIDE / ASSISTANT DE RÉCUPÉRATION
+  ====================================== -->
+
+  <section
+    id="authHelpScreen"
+    class="screen hidden"
+  >
+    <div class="auth-box">
+      <h2>🤖 Assistant d’aide</h2>
+      <div id="authHelpMessages" class="auth-help-messages">
+        <div class="notification-card">
+          <strong>🤖 Assistant</strong>
+          <p>Bonjour ! Si tu n’arrives plus à te connecter à ton compte, je peux t’aider à demander une récupération.</p>
+          <p>Entre ton identifiant unique <strong>LG-...</strong>. Si le compte appartient au créateur, la récupération est automatiquement refusée.</p>
+        </div>
+      </div>
+      <input id="authHelpIdentifier" type="text" placeholder="Ton identifiant (ex. LG-...)" autocomplete="off">
+      <button id="authHelpRecoverButton" type="button" class="main-button">🔐 Récupérer mon compte</button>
+      <button id="authHelpBackButton" type="button" class="secondary-button">← Retour à la connexion</button>
+      <p id="authHelpMessage"></p>
+    </div>
+  </section>
 
   <!-- =====================================
        MOT DE PASSE OUBLIÉ
