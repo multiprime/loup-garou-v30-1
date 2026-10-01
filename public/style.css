@@ -1333,3 +1333,6 @@ body.halloween-active::before{
 /* V0.31.1 — codes, mises à jour et défi Halloween */
 .update-card,.admin-update-row,.halloween-challenge-card{background:rgba(20,20,30,.82);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px;margin:10px 0}.update-card h3{margin:0 0 10px}.update-card h3 small{float:right;opacity:.7;font-size:.8em}.preserve-lines{white-space:pre-wrap;text-align:left}.admin-update-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.admin-update-row{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.challenge-gauge{height:32px;background:#15151d;border-radius:20px;overflow:hidden;border:1px solid rgba(255,255,255,.15);margin:20px 0}.challenge-gauge-fill{height:100%;width:0%;background:linear-gradient(90deg,#7b1fa2,#ff7a00,#ffd54f);transition:width .4s ease}.halloween-challenge-card{text-align:center}.account-identifier{white-space:nowrap}
 @media(max-width:700px){.admin-update-grid{grid-template-columns:1fr}.admin-update-row{flex-direction:column}}
+
+.auth-help-row{display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:8px}
+.auth-help-messages{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow:auto;margin:10px 0}
