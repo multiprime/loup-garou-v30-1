@@ -352,6 +352,10 @@
         <span>Boutique</span>
       </button>
 
+      <button id="promoCodeMenuButton" class="menu-button" type="button">🎟️<span>Code</span></button>
+      <button id="updatesButton" class="menu-button" type="button">📝<span>Mises à jour</span></button>
+      <button id="halloweenChallengeButton" class="menu-button hidden" type="button">🎃<span>Défi Halloween</span></button>
+
 
       <button
         id="bloodMoonButton"
@@ -720,6 +724,23 @@
          LUNE DE SANG
     ==================================== -->
 
+    <section id="promoCodePage" class="page hidden">
+      <h2>🎟️ Code cadeau</h2>
+      <p>Entre un code reçu pour récupérer sa récompense.</p>
+      <div class="promo-redeem-card"><div class="promo-redeem-row"><input id="promoCodeInputMenu" type="text" maxlength="32" placeholder="Entre ton code"><button id="promoCodeRedeemButtonMenu" type="button" class="main-button">🎁 Utiliser</button></div><p id="promoCodeMessageMenu"></p></div>
+    </section>
+
+    <section id="updatesPage" class="page hidden">
+      <h2>📝 Mises à jour</h2>
+      <div id="updatesList" class="cards-list">Chargement...</div>
+    </section>
+
+    <section id="halloweenChallengePage" class="page hidden">
+      <h2>🎃 Grand défi Halloween</h2>
+      <p>Toutes les parties terminées pendant le défi s'additionnent pour toute la communauté.</p>
+      <div class="halloween-challenge-card"><div class="challenge-gauge"><div id="halloweenChallengeFill" class="challenge-gauge-fill"></div></div><strong id="halloweenChallengeText">0 / 100 parties</strong><p id="halloweenChallengeReward">À 100 parties : 200 pièces pour tout le monde.</p></div>
+    </section>
+
     <section
       id="bloodMoonPage"
       class="page hidden"
@@ -793,7 +814,7 @@
         <input
           id="adminPlayerSearch"
           type="text"
-          placeholder="Pseudo du joueur"
+          placeholder="Pseudo ou identifiant (ex. LG-...)"
         >
 
         <button
@@ -1015,6 +1036,21 @@
         <h3>👥 Joueurs et classes</h3>
         <div id="adminUsersList" class="cards-list"></div>
         <div id="adminClassesList" class="cards-list"></div>
+      </div>
+
+      <div class="admin-card">
+        <h3>📝 Historique des mises à jour</h3>
+        <p>Ajoute ou modifie manuellement les notes de version visibles par les joueurs.</p>
+        <input id="adminUpdateId" type="hidden">
+        <div class="admin-update-grid">
+          <input id="adminUpdateVersion" type="text" placeholder="Version (ex. 0.31)">
+          <input id="adminUpdateDate" type="date">
+        </div>
+        <textarea id="adminUpdateFeatures" rows="6" placeholder="Nouvelles fonctionnalités, correctifs... Les retours à la ligne sont conservés."></textarea>
+        <button id="adminSaveUpdateButton" type="button" class="main-button">💾 Ajouter la mise à jour</button>
+        <button id="adminCancelUpdateButton" type="button" class="secondary-button hidden">Annuler la modification</button>
+        <p id="adminUpdateMessage"></p>
+        <div id="adminUpdatesList" class="cards-list"></div>
       </div>
 
       <!-- ANNONCE -->
