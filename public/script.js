@@ -537,7 +537,11 @@ function renderMaintenanceState(state){
   const tick=()=>{
     const left=Math.max(0,Number(maintenanceState.endsAt||0)-Date.now());
     if(timer)timer.textContent=formatMaintenanceTime(left);
-    // À 0, l'écran reste volontairement affiché jusqu'à l'arrêt manuel par l'admin.
+    if(left<=0 && maintenanceState.active){
+      clearInterval(maintenanceTimerInterval);
+      // Le serveur désactive automatiquement la maintenance à l'expiration.
+      refreshMaintenanceStatus();
+    }
   };
   clearInterval(maintenanceTimerInterval);
   tick();
@@ -2145,6 +2149,48 @@ $("logoutButton")
 
 
 /* =====================================
+   AIDE / ASSISTANT DE RÉCUPÉRATION
+===================================== */
+
+function showAuthHelp(){
+  $("authScreen")?.classList.add("hidden");
+  $("forgotScreen")?.classList.add("hidden");
+  $("authHelpScreen")?.classList.remove("hidden");
+  if($("authHelpMessage")) $("authHelpMessage").textContent="";
+}
+
+$("authHelpButton")?.addEventListener("click", showAuthHelp);
+$("authHelpBackButton")?.addEventListener("click", ()=>{
+  $("authHelpScreen")?.classList.add("hidden");
+  $("authScreen")?.classList.remove("hidden");
+});
+
+$("authHelpRecoverButton")?.addEventListener("click", async ()=>{
+  const identifier=$("authHelpIdentifier")?.value.trim();
+  const box=$("authHelpMessages");
+  const msg=$("authHelpMessage");
+  if(!identifier){ if(msg)msg.textContent="❌ Entre ton identifiant unique."; return; }
+  if(box){
+    const row=document.createElement("div");
+    row.className="notification-card";
+    row.innerHTML=`<strong>👤 Toi</strong><p>${esc(identifier)}</p>`;
+    box.appendChild(row);
+  }
+  if(msg)msg.textContent="⏳ Vérification de ton identifiant...";
+  try{
+    const response=await fetch("/api/recovery/request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({identifier})});
+    const data=await response.json();
+    const row=document.createElement("div");
+    row.className="notification-card";
+    row.innerHTML=`<strong>🤖 Assistant</strong><p>${esc(data.message||"Demande traitée.")}</p>`;
+    box?.appendChild(row);
+    if(msg)msg.textContent=response.ok?"✅ Demande traitée.":"❌ Demande refusée.";
+  }catch(e){
+    if(msg)msg.textContent="❌ Impossible de joindre le serveur.";
+  }
+});
+
+/* =====================================
    MOT DE PASSE OUBLIÉ
 ===================================== */
 
@@ -2170,6 +2216,8 @@ $("backToLoginButton")
     "click",
     () => {
       $("forgotScreen")
+        ?.classList.add("hidden");
+      $("authHelpScreen")
         ?.classList.add("hidden");
 
       $("authScreen")
