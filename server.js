@@ -75,11 +75,12 @@ function defaultDatabase() {
     halloweenEvent: { active: false, week: 0, startedAt: 0, endsAt: 0 },
     halloweenCandyClearedAt: 0,
     halloweenShopSeason: 0,
-    v26Release: { active: false, version: 25, updatedAt: 0 },
+    v26Release: { active: true, version: 26, updatedAt: Date.now() },
     classDiscount: { percent: 0, until: 0 },
     personalEvents: {},
     promoCodes: {},
     maintenance: { active: false, startedAt: 0, endsAt: 0, durationMinutes: 0 },
+    recoveryRequests: [],
     bloodMoonTitleHistory: [],
     bloodMoonWeekTitles: {},
     globalBoosts: {
@@ -104,6 +105,7 @@ function mergeDatabase(database) {
   merged.maintenance.startedAt = Number(database?.maintenance?.startedAt || 0);
   merged.maintenance.endsAt = Number(database?.maintenance?.endsAt || 0);
   merged.maintenance.durationMinutes = Number(database?.maintenance?.durationMinutes || 0);
+  merged.recoveryRequests = Array.isArray(database?.recoveryRequests) ? database.recoveryRequests : [];
   merged.bloodMoonTitleHistory = Array.isArray(database?.bloodMoonTitleHistory) ? database.bloodMoonTitleHistory : [];
   merged.bloodMoonWeekTitles = (database?.bloodMoonWeekTitles && typeof database.bloodMoonWeekTitles === "object") ? database.bloodMoonWeekTitles : {};
   merged.halloweenCandyClearedAt = Number(database?.halloweenCandyClearedAt || 0);
@@ -146,6 +148,8 @@ function loadLocalDatabase() {
 }
 
 let db = loadLocalDatabase();
+// V26 est désormais intégrée définitivement à la version 0.31.
+db.v26Release = { active: true, version: 26, updatedAt: Number(db.v26Release?.updatedAt || Date.now()) };
 let externalDbReady = false;
 let externalDbPromise = null;
 let saveQueue = Promise.resolve();
@@ -265,6 +269,8 @@ async function initializeExternalDatabase() {
   const result = await pgPool.query("SELECT data FROM loup_garou_state WHERE id = 1");
   if (result.rows.length) {
     db = mergeDatabase(result.rows[0].data);
+    // La V26 est incluse directement dans cette version : aucune activation manuelle.
+    db.v26Release = { active: true, version: 26, updatedAt: Number(db.v26Release?.updatedAt || Date.now()) };
     console.log("✅ Base PostgreSQL externe chargée.");
   } else {
     // Première installation : si un ancien data.json existe, on le migre automatiquement.
@@ -278,6 +284,8 @@ async function initializeExternalDatabase() {
 
   normalizeLoadedUsers();
   externalDbReady = true;
+  // Persiste l’activation intégrée de la V26 dans PostgreSQL.
+  saveDatabase();
 }
 
 function saveDatabase() {
@@ -294,7 +302,7 @@ function saveDatabase() {
         console.error("Erreur sauvegarde locale :", error.message);
       }
     }
-    return;
+    return Promise.resolve();
   }
 
   // Une file d'écriture évite que plusieurs sauvegardes concurrentes se marchent dessus.
@@ -307,6 +315,7 @@ function saveDatabase() {
       [JSON.stringify(snapshot)]
     ))
     .catch(error => console.error("❌ Erreur sauvegarde PostgreSQL :", error.message));
+  return saveQueue;
 }
 
 /* =========================================
@@ -354,7 +363,16 @@ function publicUser(user) {
   // Les bonbons sont une monnaie temporaire : ils ne sont jamais exposés hors Halloween.
   if (!getHalloweenStatusForPublic() && !getPersonalEvent(user,"halloween")) safeUser.halloweenCandy = 0;
   safeUser.personalEvents = publicPersonalEvents(user);
+  safeUser.identifier = `LG-${String(user.id || "").toUpperCase()}`;
   return safeUser;
+}
+
+function userIdentifier(user){ return `LG-${String(user?.id || "").toUpperCase()}`; }
+function findUserByIdentifier(identifier){
+  const raw=String(identifier||"").trim().toUpperCase();
+  if(!raw) return null;
+  const id=raw.startsWith("LG-") ? raw.slice(3) : raw;
+  return db.users.find(u=>String(u.id||"").toUpperCase()===id) || null;
 }
 
 function generateCode() {
@@ -1764,7 +1782,7 @@ app.get("/api/maintenance", (req,res)=>{
   res.json({ maintenance: getMaintenanceStatus() });
 });
 
-app.post("/api/admin/maintenance/start", (req,res)=>{
+app.post("/api/admin/maintenance/start", async (req,res)=>{
   if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
   const minutes = Number(req.body.durationMinutes);
   if(!Number.isFinite(minutes) || minutes < 0.01 || minutes > 10080){
@@ -1772,16 +1790,16 @@ app.post("/api/admin/maintenance/start", (req,res)=>{
   }
   const now=Date.now();
   db.maintenance={active:true,startedAt:now,endsAt:now+Math.round(minutes*60000),durationMinutes:minutes};
-  saveDatabase();
+  await saveDatabase();
   const maintenance=getMaintenanceStatus();
   io.emit("maintenanceStatusChanged", maintenance);
   res.json({message:`🛠️ Maintenance activée pendant ${minutes} minute(s).`,maintenance});
 });
 
-app.post("/api/admin/maintenance/stop", (req,res)=>{
+app.post("/api/admin/maintenance/stop", async (req,res)=>{
   if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
   db.maintenance={active:false,startedAt:0,endsAt:0,durationMinutes:0};
-  saveDatabase();
+  await saveDatabase();
   const maintenance=getMaintenanceStatus();
   io.emit("maintenanceStatusChanged", maintenance);
   res.json({message:"🛠️ Maintenance arrêtée. Le jeu est de nouveau accessible.",maintenance});
@@ -1816,10 +1834,8 @@ app.get("/api/ranking",(req,res)=>{const ranked=req.query.mode==="ranked";db.use
 app.get(
   "/api/users/:pseudo",
   (req, res) => {
-    const user =
-      findUser(
-        req.params.pseudo
-      );
+    const search = String(req.params.pseudo || "").trim();
+    const user = search.toUpperCase().startsWith("LG-") ? findUserByIdentifier(search) : findUser(search);
 
     if (!user) {
       return res
@@ -1878,8 +1894,22 @@ app.get(
             a.createdAt
         );
 
+    // Une validation de récupération reste disponible jusqu’à son utilisation,
+    // même si les notifications ordinaires expirent après 30 secondes.
+    const approvedRecovery=(db.recoveryRequests||[])
+      .filter(r=>r.pseudo===user.pseudo && r.approvedAt && !r.usedAt && r.token)
+      .map(r=>({
+        id:`recovery-${r.id}`,
+        pseudo:user.pseudo,
+        title:"🔐 Récupération de compte validée",
+        message:"Le créateur a validé ta demande. Tu peux récupérer ton compte avec le bouton ci-dessous.",
+        type:"recoveryApproved",
+        reward:null, claimed:false, createdAt:Number(r.approvedAt),
+        action:{type:"recoveryApproved",token:r.token}
+      }));
+
     res.json({
-      notifications
+      notifications:[...approvedRecovery,...notifications]
     });
   }
 );
@@ -2402,9 +2432,49 @@ app.delete("/api/admin/promo-codes/:code",(req,res)=>{
   delete db.promoCodes[code]; saveDatabase(); res.json({message:`Code ${code} supprimé.`});
 });
 
+app.post("/api/recovery/request", (req,res)=>{
+  const identifier=String(req.body.identifier||"").trim();
+  if(!identifier) return res.status(400).json({message:"Entre ton identifiant de compte."});
+  const user=findUserByIdentifier(identifier);
+  if(user && normalizePseudo(user.pseudo)===ADMIN_PSEUDO) return res.status(403).json({message:"Tu n’as pas accès au compte du créateur."});
+  if(!user) return res.status(404).json({message:"Identifiant introuvable. Vérifie ton identifiant de compte."});
+  const existing=(db.recoveryRequests||[]).find(r=>r.identifier===userIdentifier(user)&&!r.approvedAt&&!r.usedAt);
+  if(existing) return res.json({message:"Ta demande est déjà envoyée au créateur.",requestId:existing.id,adminOnline:isUserOnline(ADMIN_PSEUDO)});
+  const request={id:createId(),identifier:userIdentifier(user),pseudo:user.pseudo,createdAt:Date.now(),status:"pending",approvedAt:0,usedAt:0,token:""};
+  db.recoveryRequests=db.recoveryRequests||[]; db.recoveryRequests.push(request);
+  saveDatabase();
+  const adminOnline=isUserOnline(ADMIN_PSEUDO);
+  addNotification(ADMIN_PSEUDO,{title:"🆘 Demande de récupération de compte",message:`${user.pseudo} demande la récupération de son compte (${userIdentifier(user)}).`,type:"recoveryRequest",action:{type:"recoveryRequest",requestId:request.id,identifier:request.identifier}});
+  res.json({message:adminOnline?"Ta demande a été envoyée au créateur.":"Le créateur est déconnecté. Ta demande est conservée et pourra être traitée à sa prochaine connexion.",requestId:request.id,adminOnline});
+});
+
+app.post("/api/recovery/claim", (req,res)=>{
+  const request=(db.recoveryRequests||[]).find(r=>String(r.token||"")===String(req.body.token||"") && !r.usedAt);
+  if(!request) return res.status(400).json({message:"Cette récupération n’est plus disponible."});
+  const user=findUserByIdentifier(request.identifier);
+  if(!user) return res.status(404).json({message:"Compte introuvable."});
+  request.usedAt=Date.now(); request.status="used"; request.token="";
+  saveDatabase();
+  res.json({message:"Compte récupéré.",user:publicUser(user)});
+});
+
+app.post("/api/admin/recovery/approve", async (req,res)=>{
+  if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
+  const identifier=String(req.body.identifier||"").trim();
+  const user=findUserByIdentifier(identifier);
+  if(user && normalizePseudo(user.pseudo)===ADMIN_PSEUDO)return res.status(403).json({message:"Tu n’as pas accès au compte du créateur."});
+  if(!user)return res.status(404).json({message:"Joueur introuvable."});
+  const request=(db.recoveryRequests||[]).find(r=>r.identifier===userIdentifier(user)&&!r.usedAt);
+  if(!request)return res.status(404).json({message:"Aucune demande de récupération en attente pour cet identifiant."});
+  request.approvedAt=Date.now(); request.status="approved"; request.token=`REC-${createId()}-${createId()}`;
+  await saveDatabase();
+  addNotification(user.pseudo,{title:"🔐 Récupération de compte validée",message:"Le créateur a validé ta demande. Tu peux récupérer ton compte avec le bouton ci-dessous.",type:"recoveryApproved",action:{type:"recoveryApproved",token:request.token}});
+  res.json({message:"Récupération validée. Le joueur a reçu son bouton de reconnexion.",requestId:request.id});
+});
+
 app.get("/api/admin/bootstrap",(req,res)=>{
   if(normalizePseudo(req.query.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
-  res.json({users:db.users.map(publicUser),classes:getPublicClasses(),announcement:db.announcements,globalBoosts:getGlobalBoostPayload(),halloween:getHalloweenStatus(),maintenance:getMaintenanceStatus(),v26Release:db.v26Release||{active:false,version:25,updatedAt:0},promoCodes:Object.values(db.promoCodes||{}).map(publicPromoCode),classDiscount:{percent:getClassDiscountPercent(),until:Number(db.classDiscount?.until||0)}});
+  res.json({users:db.users.map(publicUser),classes:getPublicClasses(),announcement:db.announcements,globalBoosts:getGlobalBoostPayload(),halloween:getHalloweenStatus(),maintenance:getMaintenanceStatus(),v26Release:db.v26Release||{active:false,version:25,updatedAt:0},promoCodes:Object.values(db.promoCodes||{}).map(publicPromoCode),recoveryRequests:(db.recoveryRequests||[]).filter(r=>!r.approvedAt&&!r.usedAt).map(r=>({id:r.id,identifier:r.identifier,pseudo:r.pseudo,createdAt:r.createdAt,status:r.status||"pending"})),classDiscount:{percent:getClassDiscountPercent(),until:Number(db.classDiscount?.until||0)}});
 });
 
 app.post("/api/admin/reward-all-now",(req,res)=>{
@@ -2437,12 +2507,7 @@ app.post("/api/admin/reward-all-now",(req,res)=>{
 
 
 app.get("/api/release",(req,res)=>res.json({v26Release:db.v26Release||{active:false,version:25,updatedAt:0}}));
-app.post("/api/admin/v26/update",(req,res)=>{
-  if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
-  if(isV26Released()) return res.status(409).json({message:"La V26 est déjà mise à jour.",release:db.v26Release});
-  const release=releaseV26();
-  res.json({message:"🚀 V26 mise à jour : Géant de pierre, correctifs et recherche de vrais joueurs activés.",release});
-});
+
 app.post("/api/admin/class-discount",(req,res)=>{if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});const pct=Number(req.body.percent||0);if(![0,10,25,50,75].includes(pct))return res.status(400).json({message:"Réduction invalide."});const discount=setClassDiscount(pct,Number(req.body.durationMinutes||10));res.json({message:pct?`🎟️ Réduction classes de ${pct}% activée.`:"🎟️ Réduction classes désactivée.",classDiscount:discount});});
 
 app.post("/api/admin/global-boost", (req,res)=>{
