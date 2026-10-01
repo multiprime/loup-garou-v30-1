@@ -31,6 +31,9 @@ const pages = [
   "commentsPage",
   "rankingPage",
   "settingsPage",
+  "promoCodePage",
+  "updatesPage",
+  "halloweenChallengePage",
   "adminPage"
 ];
 
@@ -330,6 +333,7 @@ async function refreshSavedAccount(pseudo) {
     updateProfile();
     updateAdminButton();
     refreshMaintenanceStatus();
+    loadHalloweenChallenge();
     socket.emit("userOnline", { pseudo: currentUser.pseudo });
     return true;
   } catch (error) {
@@ -2289,6 +2293,11 @@ function apiJson(url, options={}){return fetch(url,options).then(async r=>{const
 
 /* MENU */
 $("shopButton")?.addEventListener("click",async()=>{openPage("shopPage");await loadShopV8();});
+
+$("promoCodeMenuButton")?.addEventListener("click",()=>openPage("promoCodePage"));
+$("updatesButton")?.addEventListener("click",()=>{openPage("updatesPage");loadUpdatesPage();});
+$("halloweenChallengeButton")?.addEventListener("click",()=>{openPage("halloweenChallengePage");loadHalloweenChallenge();});
+
 $("bloodMoonButton")?.addEventListener("click",async()=>{openPage("bloodMoonPage");await loadBloodMoonV8();});
 
 async function refreshBloodMoonButton(){
@@ -2384,6 +2393,8 @@ async function loadAdminV8(){
   renderAdminMaintenance(d.maintenance);
   renderAdminPromoCodes(d.promoCodes||[]);
   renderAdminRecoveryRequests(d.recoveryRequests||[]);
+  renderAdminUpdates(d.updates||[]);
+  renderHalloweenChallenge(d.halloweenChallenge);
   if(uc)uc.innerHTML=`<h4>👥 ${d.users.length} joueur(s)</h4>`+d.users.map(u=>`<div class="admin-user-row"><span>${esc(u.icon||"🐺")} ${esc(u.pseudo)}</span><small>🪙${u.coins||0} • ✨${u.xp||0} • 🏆${u.trophies||0} • ${esc(u.rankedRank||"Bois")}</small><button class="secondary-button admin-select-user" data-pseudo="${esc(u.pseudo)}">Sélectionner</button></div>`).join("");uc?.querySelectorAll(".admin-select-user").forEach(b=>b.onclick=()=>{$("adminPlayerSearch").value=b.dataset.pseudo;$ ("adminSearchButton")?.click();});
  }catch(e){$("adminMessage").textContent="❌ "+e.message;}
 }
@@ -2507,7 +2518,38 @@ $("adminCreatePromoButton")?.addEventListener("click",async()=>{
  try{const d=await apiJson("/api/admin/promo-codes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});if(msg)msg.textContent="✅ "+d.message;$("adminPromoCode").value="";$("adminPromoAmount").value="";$("adminPromoTitle").value="";$("adminPromoMaxUses").value="";loadAdminV8();}catch(e){if(msg)msg.textContent="❌ "+e.message;}
 });
 
-$("promoCodeRedeemButton")?.addEventListener("click",async()=>{if(!currentUser)return;const input=$("promoCodeInput"),msg=$("promoCodeMessage"),code=input?.value?.trim()||"";if(!code){if(msg)msg.textContent="❌ Entre un code.";return;}if(msg)msg.textContent="⏳ Vérification...";try{const d=await apiJson("/api/promo-codes/redeem",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pseudo:currentUser.pseudo,code})});currentUser=d.user;saveCurrentUser();updateProfile();if(msg)msg.textContent="✅ "+d.message;if(input)input.value="";}catch(e){if(msg)msg.textContent="❌ "+e.message;}});
+$("promoCodeRedeemButton")?.addEventListener("click",()=>redeemPromoFromInput("promoCodeInput","promoCodeMessage"));
+
+async function redeemPromoFromInput(inputId,msgId){
+  if(!currentUser)return;
+  const input=$(inputId),msg=$(msgId),code=input?.value?.trim()||"";
+  if(!code){if(msg)msg.textContent="❌ Entre un code.";return;}
+  if(msg)msg.textContent="⏳ Vérification...";
+  try{const d=await apiJson("/api/promo-codes/redeem",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pseudo:currentUser.pseudo,code})});currentUser=d.user;saveCurrentUser();updateProfile();if(msg)msg.textContent="✅ "+d.message;if(input)input.value="";}
+  catch(e){if(msg)msg.textContent="❌ "+e.message;}
+}
+$("promoCodeRedeemButtonMenu")?.addEventListener("click",()=>redeemPromoFromInput("promoCodeInputMenu","promoCodeMessageMenu"));
+
+async function loadUpdatesPage(){
+  const c=$("updatesList"); if(!c)return; c.textContent="Chargement...";
+  try{const d=await apiJson("/api/updates"); const list=d.updates||[];
+    c.innerHTML=list.length?list.map(u=>`<div class="update-card"><h3>📝 Version ${esc(u.version)} <small>${esc(u.date||"")}</small></h3><p class="preserve-lines">${esc(u.features||"")}</p></div>`).join(""):"<p>Aucune mise à jour enregistrée.</p>";
+  }catch(e){c.textContent="❌ "+e.message;}
+}
+
+function renderAdminUpdates(list){
+  const c=$("adminUpdatesList"); if(!c)return; const arr=list||[];
+  c.innerHTML=arr.length?arr.map(u=>`<div class="admin-update-row"><div><strong>Version ${esc(u.version)}</strong> — ${esc(u.date||"")}<p class="preserve-lines">${esc(u.features||"")}</p></div><button class="secondary-button admin-edit-update" data-id="${esc(u.id)}">✏️ Modifier</button></div>`).join(""):"<p class=\"admin-help\">Aucune mise à jour.</p>";
+  c.querySelectorAll(".admin-edit-update").forEach(b=>b.onclick=()=>{const u=arr.find(x=>String(x.id)===String(b.dataset.id));if(!u)return;$("adminUpdateId").value=u.id;$("adminUpdateVersion").value=u.version||"";$("adminUpdateDate").value=u.date||"";$("adminUpdateFeatures").value=u.features||"";$("adminSaveUpdateButton").textContent="💾 Enregistrer la modification";$("adminCancelUpdateButton").classList.remove("hidden");});
+}
+async function loadAdminUpdates(){try{const d=await apiJson("/api/updates");renderAdminUpdates(d.updates||[]);}catch(e){const m=$("adminUpdateMessage");if(m)m.textContent="❌ "+e.message;}}
+$("adminSaveUpdateButton")?.addEventListener("click",async()=>{if(!isAdmin())return;const id=$("adminUpdateId")?.value||"",body={adminPseudo:currentUser.pseudo,version:$("adminUpdateVersion")?.value||"",date:$("adminUpdateDate")?.value||"",features:$("adminUpdateFeatures")?.value||""};const msg=$("adminUpdateMessage");try{const d=await apiJson(id?`/api/admin/updates/${encodeURIComponent(id)}`:"/api/admin/updates",{method:id?"PUT":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});if(msg)msg.textContent="✅ "+d.message;resetAdminUpdateForm();loadAdminUpdates();loadUpdatesPage();}catch(e){if(msg)msg.textContent="❌ "+e.message;}});
+function resetAdminUpdateForm(){$("adminUpdateId").value="";$ ("adminUpdateVersion")?.setAttribute("value","");if($("adminUpdateVersion"))$("adminUpdateVersion").value="";if($("adminUpdateDate"))$("adminUpdateDate").value="";if($("adminUpdateFeatures"))$("adminUpdateFeatures").value="";if($("adminSaveUpdateButton"))$("adminSaveUpdateButton").textContent="💾 Ajouter la mise à jour";$("adminCancelUpdateButton")?.classList.add("hidden");}
+$("adminCancelUpdateButton")?.addEventListener("click",resetAdminUpdateForm);
+
+function renderHalloweenChallenge(c){const active=Boolean(c?.active);$("halloweenChallengeButton")?.classList.toggle("hidden",!active);const n=Math.max(0,Number(c?.games||0)),pct=Math.min(100,Number(c?.percent||0));if($("halloweenChallengeFill"))$("halloweenChallengeFill").style.width=pct+"%";if($("halloweenChallengeText"))$("halloweenChallengeText").textContent=`${n} / 100 parties`;}
+async function loadHalloweenChallenge(){try{const d=await apiJson("/api/halloween/challenge");renderHalloweenChallenge(d.challenge);if($("halloweenChallengeReward"))$("halloweenChallengeReward").textContent="À 100 parties : 200 pièces pour tous les comptes.";}catch(e){}}
+socket.on("halloweenChallengeUpdated",renderHalloweenChallenge);socket.on("halloweenChallengeCompleted",()=>{loadHalloweenChallenge();if(currentUser)loadNotificationsV8();alert("🎃 Défi Halloween terminé ! Toute la communauté reçoit 200 pièces.");});
 
 /* CHAT */
 $("chatEnabledToggle")?.addEventListener("change",async()=>{try{const d=await apiJson("/api/settings/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pseudo:currentUser.pseudo,chatEnabled:$ ("chatEnabledToggle").checked})});currentUser=d.user;saveCurrentUser();}catch(e){alert("❌ "+e.message);}});
