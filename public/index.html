@@ -157,12 +157,13 @@
 
     <div class="auth-box">
 
-      <h2>🔑 Mot de passe oublié</h2>
+      <h2>🆘 Aide / récupération du compte</h2>
+      <p>Entre ton identifiant unique affiché dans ton compte. Le créateur doit valider la récupération.</p>
 
       <input
         id="forgotPseudo"
         type="text"
-        placeholder="Ton pseudo"
+        placeholder="Identifiant du compte (ex. LG-...)"
       >
 
       <button
@@ -235,6 +236,8 @@
           ✨ XP
           <b id="playerXp">0</b>
         </span>
+
+        <span class="account-identifier" title="Identifiant unique de ton compte">🆔 <b id="playerIdentifier">LG-...</b></span>
 
         <span class="coin-stat">
           <span class="coin-icon" aria-label="Pièces"></span>
@@ -769,14 +772,6 @@
         <p id="adminMaintenanceMessage"></p>
       </div>
 
-      <div class="admin-card admin-v26-release-card">
-        <h3>🚀 Mise à jour V26</h3>
-        <p id="adminV26Status">🔒 V26 préparée mais pas encore mise à jour</p>
-        <p>Le nouveau rôle permanent, les correctifs et la recherche de vrais joueurs ne s'activent qu'après ce bouton.</p>
-        <button id="adminV26UpdateButton" type="button" class="main-button">🚀 Mettre à jour V26</button>
-        <p id="adminV26Message"></p>
-      </div>
-
       <div class="admin-card">
         <h3>🎟️ Réductions des classes</h3>
         <p>Réduction temporaire pendant 10 minutes. Elle peut être utilisée en même temps qu'un multiplicateur.</p>
@@ -810,7 +805,13 @@
         </button>
 
         <div id="adminPlayerResult"></div>
+        <p id="adminRecoveryMessage"></p>
 
+      </div>
+
+      <div class="admin-card">
+        <h3>🆘 Récupérations de comptes</h3>
+        <div id="adminRecoveryRequests" class="cards-list"></div>
       </div>
 
 
