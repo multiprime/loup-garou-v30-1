@@ -81,6 +81,10 @@ function defaultDatabase() {
     promoCodes: {},
     maintenance: { active: false, startedAt: 0, endsAt: 0, durationMinutes: 0 },
     recoveryRequests: [],
+    updateHistory: [
+      { id: "v031", version: "0.31", date: "2026-10-01", features: "Identifiants uniques, récupération de compte, maintenance corrigée, codes cadeau, événements Halloween et Géant de pierre." }
+    ],
+    halloweenChallenge: { games: 0, target: 100, completed: 0, lastRewardAt: 0 },
     bloodMoonTitleHistory: [],
     bloodMoonWeekTitles: {},
     globalBoosts: {
@@ -106,6 +110,11 @@ function mergeDatabase(database) {
   merged.maintenance.endsAt = Number(database?.maintenance?.endsAt || 0);
   merged.maintenance.durationMinutes = Number(database?.maintenance?.durationMinutes || 0);
   merged.recoveryRequests = Array.isArray(database?.recoveryRequests) ? database.recoveryRequests : [];
+  merged.updateHistory = Array.isArray(database?.updateHistory) ? database.updateHistory : defaultDatabase().updateHistory;
+  merged.halloweenChallenge = { ...defaultDatabase().halloweenChallenge, ...(database?.halloweenChallenge || {}) };
+  merged.halloweenChallenge.games = Math.max(0, Number(merged.halloweenChallenge.games || 0));
+  merged.halloweenChallenge.target = 100;
+  merged.halloweenChallenge.completed = Math.max(0, Number(merged.halloweenChallenge.completed || 0));
   merged.bloodMoonTitleHistory = Array.isArray(database?.bloodMoonTitleHistory) ? database.bloodMoonTitleHistory : [];
   merged.bloodMoonWeekTitles = (database?.bloodMoonWeekTitles && typeof database.bloodMoonWeekTitles === "object") ? database.bloodMoonWeekTitles : {};
   merged.halloweenCandyClearedAt = Number(database?.halloweenCandyClearedAt || 0);
@@ -1243,6 +1252,28 @@ const HALLOWEEN_SHOP_ITEMS = [
 function halloweenSeasonKey(){ return Number(db.halloweenEvent?.week||0)>0 ? Number(db.halloweenEvent.week) : 0; }
 function awardHalloweenCandy(user, amount){ if(!user)return 0; const st=getHalloweenStatus(); if(!st.active)return 0; const n=Math.max(0,Math.floor(Number(amount||0))); user.halloweenCandy=Math.max(0,Number(user.halloweenCandy||0)+n); return n; }
 
+function getHalloweenChallengeStatus(){
+  const active=getHalloweenStatus().active;
+  const c=db.halloweenChallenge||{games:0,target:100,completed:0,lastRewardAt:0};
+  return {active,games:Math.max(0,Number(c.games||0)),target:100,completed:Math.max(0,Number(c.completed||0)),percent:Math.min(100,Math.round((Number(c.games||0)/100)*100))};
+}
+function registerHalloweenChallengeGame(){
+  if(!getHalloweenStatus().active) return getHalloweenChallengeStatus();
+  db.halloweenChallenge=db.halloweenChallenge||{games:0,target:100,completed:0,lastRewardAt:0};
+  db.halloweenChallenge.games=Math.min(100,Number(db.halloweenChallenge.games||0)+1);
+  if(db.halloweenChallenge.games>=100){
+    let count=0;
+    db.users.forEach(u=>{ensureUserState(u);applyReward(u,{coins:200});addNotification(u.pseudo,{title:"🎃 Défi Halloween terminé !",message:"La communauté a terminé 100 parties ! Tu reçois 200 pièces.",type:"halloweenChallenge",reward:{coins:200}});emitProfile(u);count++;});
+    db.halloweenChallenge.completed=Number(db.halloweenChallenge.completed||0)+1;
+    db.halloweenChallenge.lastRewardAt=Date.now();
+    db.halloweenChallenge.games=0;
+    io.emit("halloweenChallengeCompleted",{rewardCoins:200,players:count});
+  }
+  const status=getHalloweenChallengeStatus();
+  io.emit("halloweenChallengeUpdated",status);
+  return status;
+}
+
 function finishGame(room) {
   const game=room.game; if(!game || game.phase==="finished") return;
   game.phase="finished"; const blood=getBloodMoonStatus();
@@ -1277,6 +1308,7 @@ function finishGame(room) {
     if(won&&player.alive)registerQuestStat(user,"survivals",1);
     emitProfile(user);
   });
+  registerHalloweenChallengeGame();
   saveDatabase();
   io.to(room.code).emit("gameFinished",{winner:game.winner,players:game.players.map(p=>({pseudo:p.pseudo,alive:p.alive,isBot:p.isBot,role:p.isBot?undefined:p.role}))});
   room.status="finished";
@@ -1863,10 +1895,10 @@ app.get(
   (req, res) => {
     purgeExpiredNotifications();
     saveDatabase();
-    const user =
-      findUser(
-        req.params.pseudo
-      );
+    const searchValue = String(req.params.pseudo || "").trim();
+    const user = searchValue.toUpperCase().startsWith("LG-")
+      ? findUserByIdentifier(searchValue)
+      : findUser(searchValue);
 
     if (!user) {
       return res
@@ -2472,9 +2504,33 @@ app.post("/api/admin/recovery/approve", async (req,res)=>{
   res.json({message:"Récupération validée. Le joueur a reçu son bouton de reconnexion.",requestId:request.id});
 });
 
+app.get("/api/halloween/challenge",(req,res)=>res.json({challenge:getHalloweenChallengeStatus()}));
+
+app.get("/api/updates",(req,res)=>{
+  res.json({updates:(db.updateHistory||[]).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")))});
+});
+app.post("/api/admin/updates",async(req,res)=>{
+  if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
+  const version=String(req.body.version||"").trim();
+  const date=String(req.body.date||"").trim();
+  const features=String(req.body.features||"");
+  if(!version||!date||!features.trim())return res.status(400).json({message:"Version, date et contenu sont obligatoires."});
+  const item={id:createId(),version,date,features,createdAt:Date.now(),updatedAt:Date.now()};
+  db.updateHistory=db.updateHistory||[]; db.updateHistory.push(item); await saveDatabase(); res.json({message:"Mise à jour ajoutée.",update:item});
+});
+app.put("/api/admin/updates/:id",async(req,res)=>{
+  if(normalizePseudo(req.body.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
+  const item=(db.updateHistory||[]).find(x=>String(x.id)===String(req.params.id));
+  if(!item)return res.status(404).json({message:"Mise à jour introuvable."});
+  if(req.body.version!==undefined)item.version=String(req.body.version).trim();
+  if(req.body.date!==undefined)item.date=String(req.body.date).trim();
+  if(req.body.features!==undefined)item.features=String(req.body.features);
+  item.updatedAt=Date.now(); await saveDatabase(); res.json({message:"Mise à jour modifiée.",update:item});
+});
+
 app.get("/api/admin/bootstrap",(req,res)=>{
   if(normalizePseudo(req.query.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
-  res.json({users:db.users.map(publicUser),classes:getPublicClasses(),announcement:db.announcements,globalBoosts:getGlobalBoostPayload(),halloween:getHalloweenStatus(),maintenance:getMaintenanceStatus(),v26Release:db.v26Release||{active:false,version:25,updatedAt:0},promoCodes:Object.values(db.promoCodes||{}).map(publicPromoCode),recoveryRequests:(db.recoveryRequests||[]).filter(r=>!r.approvedAt&&!r.usedAt).map(r=>({id:r.id,identifier:r.identifier,pseudo:r.pseudo,createdAt:r.createdAt,status:r.status||"pending"})),classDiscount:{percent:getClassDiscountPercent(),until:Number(db.classDiscount?.until||0)}});
+  res.json({users:db.users.map(publicUser),classes:getPublicClasses(),announcement:db.announcements,globalBoosts:getGlobalBoostPayload(),halloween:getHalloweenStatus(),maintenance:getMaintenanceStatus(),v26Release:db.v26Release||{active:false,version:25,updatedAt:0},promoCodes:Object.values(db.promoCodes||{}).map(publicPromoCode),recoveryRequests:(db.recoveryRequests||[]).filter(r=>!r.approvedAt&&!r.usedAt).map(r=>({id:r.id,identifier:r.identifier,pseudo:r.pseudo,createdAt:r.createdAt,status:r.status||"pending"})),updates:(db.updateHistory||[]).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))),halloweenChallenge:getHalloweenChallengeStatus(),classDiscount:{percent:getClassDiscountPercent(),until:Number(db.classDiscount?.until||0)}});
 });
 
 app.post("/api/admin/reward-all-now",(req,res)=>{
