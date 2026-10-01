@@ -379,6 +379,7 @@ function loginUser(user) {
   $("authScreen")?.classList.add("hidden");
 
   $("forgotScreen")?.classList.add("hidden");
+  $("authHelpScreen")?.classList.add("hidden");
 
   $("menuScreen")?.classList.remove("hidden");
 
@@ -2183,14 +2184,26 @@ $("authHelpRecoverButton")?.addEventListener("click", async ()=>{
     const row=document.createElement("div");
     row.className="notification-card";
     row.innerHTML=`<strong>🤖 Assistant</strong><p>${esc(data.message||"Demande traitée.")}</p>`;
-    box?.appendChild(row);
     if(response.ok && data.token){
       const b=document.createElement("button");
       b.className="main-button";
       b.textContent="🔐 Récupérer automatiquement mon compte";
-      b.onclick=async()=>{try{const d=await apiJson("/api/recovery/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:data.token})});loginUser(d.user);b.remove();}catch(e){if(msg)msg.textContent="❌ "+e.message;}};
-      box?.appendChild(b);
+      b.type="button";
+      b.onclick=async()=>{
+        b.disabled=true;
+        b.textContent="⏳ Connexion à ton compte...";
+        try{
+          const d=await apiJson("/api/recovery/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:data.token})});
+          loginUser(d.user);
+        }catch(e){
+          b.disabled=false;
+          b.textContent="🔐 Récupérer automatiquement mon compte";
+          if(msg)msg.textContent="❌ "+e.message;
+        }
+      };
+      row.appendChild(b);
     }
+    box?.appendChild(row);
     if(msg)msg.textContent=response.ok?"✅ Identifiant vérifié.":"❌ Récupération refusée.";
   }catch(e){
     if(msg)msg.textContent="❌ Impossible de joindre le serveur.";
