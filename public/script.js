@@ -2184,7 +2184,14 @@ $("authHelpRecoverButton")?.addEventListener("click", async ()=>{
     row.className="notification-card";
     row.innerHTML=`<strong>🤖 Assistant</strong><p>${esc(data.message||"Demande traitée.")}</p>`;
     box?.appendChild(row);
-    if(msg)msg.textContent=response.ok?"✅ Demande traitée.":"❌ Demande refusée.";
+    if(response.ok && data.token){
+      const b=document.createElement("button");
+      b.className="main-button";
+      b.textContent="🔐 Récupérer automatiquement mon compte";
+      b.onclick=async()=>{try{const d=await apiJson("/api/recovery/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:data.token})});loginUser(d.user);b.remove();}catch(e){if(msg)msg.textContent="❌ "+e.message;}};
+      box?.appendChild(b);
+    }
+    if(msg)msg.textContent=response.ok?"✅ Identifiant vérifié.":"❌ Récupération refusée.";
   }catch(e){
     if(msg)msg.textContent="❌ Impossible de joindre le serveur.";
   }
@@ -2397,7 +2404,7 @@ loadRanking = async function(){
 function renderNotification(n){
   const wrap=document.createElement("div");wrap.className="notification-card";wrap.dataset.notificationId=n.id;
   wrap.innerHTML=`<strong>${esc(n.title)}</strong><p>${esc(n.message)}</p>`;
-  if(n.action?.type==="recoveryApproved" && n.action.token){
+  if((n.action?.type==="recoveryApproved" || n.action?.type==="recoveryReady") && n.action.token){
     const b=document.createElement("button");b.className="main-button";b.textContent="🔐 Récupérer mon compte";
     b.onclick=async()=>{try{const d=await apiJson("/api/recovery/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:n.action.token})});loginUser(d.user);wrap.remove();}catch(e){alert("❌ "+e.message);}};wrap.appendChild(b);
   }
@@ -2421,8 +2428,7 @@ socket.on("roomInviteResult",()=>loadNotificationsV8());
 function renderAdminRecoveryRequests(requests){
   const c=$("adminRecoveryRequests"); if(!c)return;
   if(!requests.length){c.innerHTML="<p class=\"admin-help\">Aucune demande en attente.</p>";return;}
-  c.innerHTML=requests.map(r=>`<div class="admin-user-row"><div><strong>🆘 ${esc(r.pseudo)}</strong><small>🆔 ${esc(r.identifier)}</small></div><button type="button" class="main-button admin-recovery-approve" data-id="${esc(r.identifier)}">✅ Valider la récupération</button></div>`).join("");
-  c.querySelectorAll(".admin-recovery-approve").forEach(b=>b.onclick=async()=>{try{const d=await apiJson("/api/admin/recovery/approve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo,identifier:b.dataset.id})});$("adminRecoveryMessage").textContent="✅ "+d.message;loadAdminV8();}catch(e){$("adminRecoveryMessage").textContent="❌ "+e.message;}});
+  c.innerHTML=requests.map(r=>`<div class="admin-user-row"><div><strong>🆘 ${esc(r.pseudo)}</strong><small>🆔 ${esc(r.identifier)}</small></div><span class="admin-help">Récupération automatique disponible</span></div>`).join("");
 }
 
 async function loadAdminV8(){
