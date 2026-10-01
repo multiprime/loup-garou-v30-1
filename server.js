@@ -2478,14 +2478,16 @@ app.post("/api/recovery/request", (req,res)=>{
   const user=findUserByIdentifier(identifier);
   if(user && normalizePseudo(user.pseudo)===ADMIN_PSEUDO) return res.status(403).json({message:"Tu n’as pas accès au compte du créateur."});
   if(!user) return res.status(404).json({message:"Identifiant introuvable. Vérifie ton identifiant de compte."});
-  const existing=(db.recoveryRequests||[]).find(r=>r.identifier===userIdentifier(user)&&!r.approvedAt&&!r.usedAt);
-  if(existing) return res.json({message:"Ta demande est déjà envoyée au créateur.",requestId:existing.id,adminOnline:isUserOnline(ADMIN_PSEUDO)});
-  const request={id:createId(),identifier:userIdentifier(user),pseudo:user.pseudo,createdAt:Date.now(),status:"pending",approvedAt:0,usedAt:0,token:""};
-  db.recoveryRequests=db.recoveryRequests||[]; db.recoveryRequests.push(request);
+  const existing=(db.recoveryRequests||[]).find(r=>r.identifier===userIdentifier(user)&&!r.usedAt);
+  const request=existing||{id:createId(),identifier:userIdentifier(user),pseudo:user.pseudo,createdAt:Date.now(),status:"ready",approvedAt:0,usedAt:0,token:""};
+  if(!request.token) request.token=`REC-${createId()}-${createId()}`;
+  request.status="ready";
+  db.recoveryRequests=db.recoveryRequests||[];
+  if(!existing) db.recoveryRequests.push(request);
   saveDatabase();
   const adminOnline=isUserOnline(ADMIN_PSEUDO);
-  addNotification(ADMIN_PSEUDO,{title:"🆘 Demande de récupération de compte",message:`${user.pseudo} demande la récupération de son compte (${userIdentifier(user)}).`,type:"recoveryRequest",action:{type:"recoveryRequest",requestId:request.id,identifier:request.identifier}});
-  res.json({message:adminOnline?"Ta demande a été envoyée au créateur.":"Le créateur est déconnecté. Ta demande est conservée et pourra être traitée à sa prochaine connexion.",requestId:request.id,adminOnline});
+  addNotification(ADMIN_PSEUDO,{title:"🆘 Récupération de compte",message:`${user.pseudo} a demandé une récupération automatique (${userIdentifier(user)}).`,type:"recoveryRequest",action:{type:"recoveryRequest",requestId:request.id,identifier:request.identifier}});
+  res.json({message:"Identifiant vérifié. Tu peux récupérer automatiquement ton compte avec le bouton ci-dessous.",requestId:request.id,token:request.token,adminOnline});
 });
 
 app.post("/api/recovery/claim", (req,res)=>{
@@ -2493,6 +2495,7 @@ app.post("/api/recovery/claim", (req,res)=>{
   if(!request) return res.status(400).json({message:"Cette récupération n’est plus disponible."});
   const user=findUserByIdentifier(request.identifier);
   if(!user) return res.status(404).json({message:"Compte introuvable."});
+  if(normalizePseudo(user.pseudo)===ADMIN_PSEUDO) return res.status(403).json({message:"Tu n’as pas accès au compte du créateur."});
   request.usedAt=Date.now(); request.status="used"; request.token="";
   saveDatabase();
   res.json({message:"Compte récupéré.",user:publicUser(user)});
