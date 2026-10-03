@@ -892,6 +892,7 @@ function ensureUserState(user) {
   user.boosts.double_xp_until = Number(user.boosts.double_xp_until || 0);
   user.boosts.double_trophies_until = Number(user.boosts.double_trophies_until || 0);
   user.halloweenCandy = Math.max(0, Number(user.halloweenCandy || 0));
+  user.halloweenBoxes = { haunted: Math.max(0, Number(user.halloweenBoxes?.haunted || 0)), cursed: Math.max(0, Number(user.halloweenBoxes?.cursed || 0)), nocturnal: Math.max(0, Number(user.halloweenBoxes?.nocturnal || 0)) };
   user.personalEvents = user.personalEvents && typeof user.personalEvents === "object" ? user.personalEvents : {};
   user.usedPromoCodes = Array.isArray(user.usedPromoCodes) ? user.usedPromoCodes : [];
 }
@@ -1251,6 +1252,41 @@ const HALLOWEEN_SHOP_ITEMS = [
 ];
 function halloweenSeasonKey(){ return Number(db.halloweenEvent?.week||0)>0 ? Number(db.halloweenEvent.week) : 0; }
 function awardHalloweenCandy(user, amount){ if(!user)return 0; const st=getHalloweenStatus(); if(!st.active)return 0; const n=Math.max(0,Math.floor(Number(amount||0))); user.halloweenCandy=Math.max(0,Number(user.halloweenCandy||0)+n); return n; }
+function awardHalloweenBox(user){
+  if(!user || !getHalloweenStatus().active) return null;
+  ensureUserState(user);
+  const roll=Math.random();
+  const type=roll<0.68 ? "haunted" : roll<0.93 ? "cursed" : "nocturnal";
+  user.halloweenBoxes[type]=Number(user.halloweenBoxes[type]||0)+1;
+  return type;
+}
+function halloweenBoxPayload(user){
+  ensureUserState(user);
+  return {haunted:Number(user.halloweenBoxes.haunted||0),cursed:Number(user.halloweenBoxes.cursed||0),nocturnal:Number(user.halloweenBoxes.nocturnal||0)};
+}
+function openHalloweenBox(user,type){
+  if(!user) throw new Error("Compte introuvable.");
+  if(!getHalloweenStatus().active) throw new Error("Les boîtes Halloween sont disponibles uniquement pendant l'événement.");
+  ensureUserState(user);
+  if(!["haunted","cursed","nocturnal"].includes(type)) throw new Error("Boîte inconnue.");
+  if(Number(user.halloweenBoxes[type]||0)<=0) throw new Error("Tu ne possèdes pas cette boîte.");
+  user.halloweenBoxes[type]--;
+  const rewards={
+    haunted:[{coins:100},{xp:150},{halloweenCandy:25}],
+    cursed:[{coins:250},{xp:350},{trophies:1},{halloweenCandy:50}],
+    nocturnal:[{coins:500},{xp:750},{trophies:2},{title:"Ombre de la Nuit"}]
+  };
+  const reward={...rewards[type][Math.floor(Math.random()*rewards[type].length)]};
+  if(reward.title){
+    user.titles=user.titles||["Nouveau Villageois"];
+    if(!user.titles.includes(reward.title)) user.titles.push(reward.title);
+  }
+  applyReward(user,reward);
+  addNotification(user.pseudo,{title:"🎃 Boîte Halloween ouverte !",message:`Tu as obtenu ${reward.coins?reward.coins+" pièces 🪙":reward.xp?reward.xp+" XP ✨":reward.trophies?reward.trophies+" trophée(s) 🏆":reward.halloweenCandy?reward.halloweenCandy+" bonbons 🍬":"le titre « "+reward.title+" » 🏷️"}.`,type:"halloweenBox"});
+  emitProfile(user);
+  saveDatabase();
+  return {type,reward,boxes:halloweenBoxPayload(user),user:publicUser(user)};
+}
 
 function getHalloweenChallengeStatus(){
   const active=getHalloweenStatus().active;
@@ -1300,6 +1336,8 @@ function finishGame(room) {
     applyReward(user,{xp,coins,trophies});
     const candyEarned = awardHalloweenCandy(user, won ? 25 : 10);
     if(candyEarned) registerQuestStat(user,"halloweenCandy",candyEarned);
+    const boxEarned = awardHalloweenBox(user);
+    if(boxEarned) addNotification(user.pseudo,{title:"🎃 Nouvelle boîte Halloween !",message:`Tu as gagné une ${boxEarned==="haunted"?"boîte hantée":boxEarned==="cursed"?"boîte maudite":"boîte nocturne"}.`,type:"halloweenBoxDrop"});
     user.gamesPlayed=Number(user.gamesPlayed||0)+1; registerQuestStat(user,"gamesPlayed",1);
     if(won){user.gamesWon=Number(user.gamesWon||0)+1;registerQuestStat(user,"gamesWon",1);if(blood.active)registerBloodQuest(user,"bloodWon",1);}
     if(game.ranked){registerQuestStat(user,"rankedPlayed",1);if(won){registerQuestStat(user,"rankedWon",1);user.rankedWins++;user.rankedPoints+=30;}else{user.rankedPoints=Math.max(0,user.rankedPoints-10);}user.rankedRank=getRankedRank(user.rankedPoints);}
@@ -1437,6 +1475,8 @@ app.post(
         coins: 50,
 
         halloweenCandy: 0,
+
+        halloweenBoxes: { haunted: 0, cursed: 0, nocturnal: 0 },
 
         trophies: 0,
 
@@ -3037,6 +3077,15 @@ app.get("/api/shop",(req,res)=>{
   if(st.active)items.push({id:"blood_quarter",name:"Quart de Lune de Sang",price:500,description:"Ajoute un quart à ta progression de Lune de Sang."});
   const halloween=getHalloweenStatus();
   res.json({items,halloween:{active:Boolean(halloween.active),week:halloween.week,candy:0,shopItems:HALLOWEEN_SHOP_ITEMS}});
+});
+app.get("/api/halloween/boxes",(req,res)=>{
+  const u=findUser(req.query.pseudo); if(!u)return res.status(404).json({message:"Compte introuvable."});
+  const active=getHalloweenStatus().active;
+  res.json({active,boxes:halloweenBoxPayload(u)});
+});
+app.post("/api/halloween/boxes/open",(req,res)=>{
+  try{const u=findUser(req.body.pseudo); if(!u)return res.status(404).json({message:"Compte introuvable."}); const result=openHalloweenBox(u,String(req.body.type||"")); res.json(result);}
+  catch(e){res.status(400).json({message:e.message});}
 });
 app.get("/api/halloween/shop",(req,res)=>{
   const u=findUser(req.query.pseudo);
