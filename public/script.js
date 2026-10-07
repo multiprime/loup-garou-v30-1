@@ -383,6 +383,9 @@ function loginUser(user) {
   updateProfile();
   updateAdminButton();
   refreshMaintenanceStatus();
+  // Le défi Halloween est communautaire : tous les comptes doivent
+  // récupérer son état, pas seulement l'administrateur.
+  loadHalloweenChallenge();
 }
 
 function saveCurrentUser() {
