@@ -813,7 +813,7 @@
 
       </div>
 
-      <div class="admin-card admin-maintenance-card">
+      <div class="admin-card full-admin-only admin-maintenance-card">
         <h3>🛠️ Maintenance du jeu</h3>
         <p>Quand la maintenance est active, seul <strong>creator2026</strong> peut continuer à utiliser le jeu.</p>
         <div class="admin-maintenance-controls">
@@ -826,7 +826,7 @@
         <p id="adminMaintenanceMessage"></p>
       </div>
 
-      <div class="admin-card">
+      <div class="admin-card full-admin-only">
         <h3>🎟️ Réductions des classes</h3>
         <p>Réduction temporaire pendant 10 minutes. Elle peut être utilisée en même temps qu'un multiplicateur.</p>
         <div class="admin-boost-buttons">
@@ -864,6 +864,18 @@
       </div>
 
       <div class="admin-card">
+        <h3>➕ Créer un compte</h3>
+        <p class="admin-help">Disponible pour l’administrateur principal et le panel admin réduit.</p>
+        <div class="admin-create-account-grid">
+          <input id="adminCreatePseudo" type="text" maxlength="20" placeholder="Pseudo">
+          <input id="adminCreateEmail" type="email" placeholder="E-mail">
+          <input id="adminCreatePassword" type="password" minlength="4" placeholder="Mot de passe">
+        </div>
+        <button id="adminCreateAccountButton" type="button" class="main-button">➕ Créer le compte</button>
+        <p id="adminCreateAccountMessage"></p>
+      </div>
+
+      <div class="admin-card full-admin-only">
         <h3>🆘 Récupérations de comptes</h3>
         <div id="adminRecoveryRequests" class="cards-list"></div>
       </div>
@@ -949,7 +961,7 @@
       </div>
 
 
-      <div class="admin-card admin-personal-event-card">
+      <div class="admin-card full-admin-only admin-personal-event-card">
         <h3>⚡ Donner un événement à un joueur</h3>
         <p>Choisis un joueur recherché ci-dessus et offre-lui un événement pendant <strong>10 minutes</strong>.</p>
         <select id="adminPersonalEventSelect">
@@ -969,7 +981,7 @@
       </div>
 
 
-      <div class="admin-card admin-code-card">
+      <div class="admin-card full-admin-only admin-code-card">
         <h3>🎟️ Codes de récompense</h3>
         <p>Crée des codes utilisables une seule fois par compte. Mets <strong>0</strong> en limite pour un code illimité.</p>
         <div class="admin-code-grid">
@@ -992,7 +1004,7 @@
         <div id="adminPromoCodesList" class="admin-promo-list"></div>
       </div>
 
-      <div class="admin-card">
+      <div class="admin-card full-admin-only">
         <h3>🌐 Récompenser tous les joueurs</h3>
         <input id="adminAllCoins" type="number" min="0" placeholder="Pièces">
         <input id="adminAllXp" type="number" min="0" placeholder="XP">
@@ -1003,7 +1015,7 @@
         <p id="adminAllMessage"></p>
       </div>
 
-      <div class="admin-card admin-boost-card">
+      <div class="admin-card full-admin-only admin-boost-card">
         <h3>⚡ Multiplicateurs globaux</h3>
         <p>Active un bonus pour tous les joueurs. Durée par défaut : 10 minutes.</p>
         <div class="admin-boost-grid">
@@ -1044,7 +1056,7 @@
         <p id="adminBoostMessage"></p>
       </div>
 
-      <div class="admin-card admin-halloween-card">
+      <div class="admin-card full-admin-only admin-halloween-card">
         <h3>🎃 Événement Halloween</h3>
         <p id="adminHalloweenStatus">🎃 Événement désactivé.</p>
         <div class="admin-halloween-buttons">
@@ -1058,7 +1070,7 @@
         <p id="adminHalloweenMessage"></p>
       </div>
 
-      <div class="admin-card">
+      <div class="admin-card full-admin-only">
         <h3>🌕 Événement Lune de Sang</h3>
         <p>Lance immédiatement l'événement pour 20 minutes.</p>
         <button id="adminBloodMoonButton" type="button" class="main-button">🌕 Activer pendant 20 minutes</button>
@@ -1071,7 +1083,7 @@
         <div id="adminClassesList" class="cards-list"></div>
       </div>
 
-      <div class="admin-card">
+      <div class="admin-card full-admin-only">
         <h3>📝 Historique des mises à jour</h3>
         <p>Ajoute ou modifie manuellement les notes de version visibles par les joueurs.</p>
         <input id="adminUpdateId" type="hidden">
@@ -1088,7 +1100,7 @@
 
       <!-- ANNONCE -->
 
-      <div class="admin-card">
+      <div class="admin-card full-admin-only">
 
         <h3>📢 Annonce du menu</h3>
 

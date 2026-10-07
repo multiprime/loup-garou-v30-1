@@ -1341,3 +1341,10 @@ body.halloween-active::before{
 
 .auth-help-row{display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:8px}
 .auth-help-messages{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow:auto;margin:10px 0}
+
+
+/* V0.31.1 — navigation et administration réduite */
+.admin-create-account-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:10px 0;}
+.admin-account-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.reduced-admin .full-admin-only{display:none!important;}
+@media (max-width:700px){.admin-account-actions button{width:100%;}.admin-create-account-grid{grid-template-columns:1fr;}}

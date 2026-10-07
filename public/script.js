@@ -55,18 +55,13 @@ function hidePages() {
 
 function openPage(pageId) {
   hidePages();
-
   const page = $(pageId);
-
   if (page) {
     page.classList.remove("hidden");
+    requestAnimationFrame(()=>page.scrollIntoView({behavior:"smooth",block:"start"}));
   }
-
   const backButton = $("backButton");
-
-  if (backButton) {
-    backButton.classList.remove("hidden");
-  }
+  if (backButton) backButton.classList.remove("hidden");
 }
 
 
@@ -578,13 +573,17 @@ socket.on("maintenanceStatusChanged",state=>{
    ADMIN
 ===================================== */
 
-function isAdmin() {
-  return Boolean(
-    currentUser &&
-    currentUser.pseudo &&
-    currentUser.pseudo.toLowerCase() ===
-      ADMIN_PSEUDO.toLowerCase()
-  );
+function getAdminRole(){
+  if(!currentUser?.pseudo) return "none";
+  if(currentUser.pseudo.toLowerCase()===ADMIN_PSEUDO.toLowerCase()) return "full";
+  return currentUser.adminRole === "reduced" ? "reduced" : "none";
+}
+function isAdmin() { return getAdminRole()==="full"; }
+function hasAdminPanel(){ return getAdminRole()!=="none"; }
+function applyAdminPanelVisibility(){
+  const reduced=getAdminRole()==="reduced";
+  document.querySelectorAll(".full-admin-only").forEach(el=>el.classList.toggle("hidden",reduced));
+  document.body.classList.toggle("reduced-admin",reduced);
 }
 
 function updateAdminButton() {
@@ -593,7 +592,7 @@ function updateAdminButton() {
 
   if (!adminButton) return;
 
-  if (isAdmin()) {
+  if (hasAdminPanel()) {
     adminButton.classList.remove("hidden");
   } else {
     adminButton.classList.add("hidden");
@@ -603,11 +602,11 @@ function updateAdminButton() {
 $("adminButton")?.addEventListener(
   "click",
   () => {
-    if (!isAdmin()) {
+    if (!hasAdminPanel()) {
       alert("❌ Accès refusé.");
       return;
     }
-
+    applyAdminPanelVisibility();
     openPage("adminPage");
   }
 );
@@ -1629,7 +1628,7 @@ $("adminSearchButton")
   ?.addEventListener(
     "click",
     async () => {
-      if (!isAdmin()) {
+      if (!hasAdminPanel()) {
         alert("❌ Accès refusé.");
         return;
       }
@@ -1718,9 +1717,14 @@ $("adminSearchButton")
               🏆 Trophées :
               ${user.trophies || 0}
             </p>
-
+            <p>🛡️ Accès admin : <strong>${user.adminRole === "reduced" ? "Panel réduit" : (user.pseudo.toLowerCase()===ADMIN_PSEUDO.toLowerCase() ? "Créateur" : "Aucun")}</strong></p>
+            ${isAdmin() && user.pseudo.toLowerCase()!==ADMIN_PSEUDO.toLowerCase() ? `<div class="admin-account-actions"><button type="button" id="adminToggleReducedButton" class="secondary-button">${user.adminRole === "reduced" ? "🔒 Retirer le panel réduit" : "🛡️ Donner le panel réduit"}</button><button type="button" id="adminDeleteAccountButton" class="danger-button">🗑️ Supprimer le compte</button></div>` : ""}
           </div>
         `;
+        if(isAdmin() && user.pseudo.toLowerCase()!==ADMIN_PSEUDO.toLowerCase()){
+          $("adminToggleReducedButton")?.addEventListener("click",async()=>{try{const enabled=user.adminRole!=="reduced";const d=await apiJson("/api/admin/account-admin-role",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo,targetPseudo:user.pseudo,enabled})});selectedAdminUser=d.user;result.querySelector("#adminToggleReducedButton").textContent=enabled?"🔒 Retirer le panel réduit":"🛡️ Donner le panel réduit";loadAdminV8();}catch(e){alert("❌ "+e.message);}});
+          $("adminDeleteAccountButton")?.addEventListener("click",async()=>{if(!confirm(`Supprimer définitivement le compte ${user.pseudo} ?`))return;try{const d=await apiJson(`/api/admin/users/${encodeURIComponent(user.pseudo)}`,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo})});selectedAdminUser=null;result.innerHTML=`<p>✅ ${esc(d.message)}</p>`;loadAdminV8();}catch(e){alert("❌ "+e.message);}});
+        }
 
       } catch {
         selectedAdminUser =
@@ -1734,6 +1738,25 @@ $("adminSearchButton")
 
 
 $("adminPlayerSearch")?.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$("adminSearchButton")?.click();}});
+
+/* =====================================
+   ADMIN - CRÉER UN COMPTE
+===================================== */
+$("adminCreateAccountButton")?.addEventListener("click",async()=>{
+  if(!hasAdminPanel())return;
+  const msg=$("adminCreateAccountMessage");
+  const pseudo=$("adminCreatePseudo")?.value.trim()||"";
+  const email=$("adminCreateEmail")?.value.trim()||"";
+  const password=$("adminCreatePassword")?.value||"";
+  if(!pseudo||!email||password.length<4){if(msg)msg.textContent="❌ Remplis le pseudo, l’e-mail et un mot de passe d’au moins 4 caractères.";return;}
+  if(msg)msg.textContent="⏳ Création...";
+  try{
+    const d=await apiJson("/api/admin/create-account",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo,pseudo,email,password})});
+    if(msg)msg.textContent="✅ "+d.message;
+    $("adminCreatePseudo").value="";$("adminCreateEmail").value="";$("adminCreatePassword").value="";
+    loadAdminV8();
+  }catch(e){if(msg)msg.textContent="❌ "+e.message;}
+});
 
 /* =====================================
    ADMIN - TYPE DE RÉCOMPENSE
@@ -1785,7 +1808,7 @@ $("adminGiveButton")
   ?.addEventListener(
     "click",
     async () => {
-      if (!isAdmin()) {
+      if (!hasAdminPanel()) {
         alert("❌ Accès refusé.");
         return;
       }
@@ -2434,6 +2457,7 @@ function renderNotification(n){
 async function loadNotificationsV8(){if(!currentUser)return;try{const d=await apiJson(`/api/notifications/${encodeURIComponent(currentUser.pseudo)}`);const c=$("notifications");if(!c)return;c.innerHTML="";(d.notifications||[]).slice(0,8).forEach(n=>c.appendChild(renderNotification(n)));}catch{}}
 socket.on("notification",n=>{const c=$("notifications");if(c)c.prepend(renderNotification(n));});
 socket.on("profileUpdated",u=>{if(currentUser&&u.pseudo===currentUser.pseudo){currentUser=u;saveCurrentUser();updateProfile();}});
+socket.on("forceLogout",d=>{alert(d?.message||"Ton compte a été déconnecté.");currentUser=null;localStorage.removeItem("lgv7_user");location.reload();});
 socket.on("roomInvitation",()=>loadNotificationsV8());
 socket.on("roomInviteResult",()=>loadNotificationsV8());
 
@@ -2445,9 +2469,12 @@ function renderAdminRecoveryRequests(requests){
 }
 
 async function loadAdminV8(){
- if(!isAdmin())return;
+ if(!hasAdminPanel())return;
+ applyAdminPanelVisibility();
  try{
   const d=await apiJson(`/api/admin/bootstrap?adminPseudo=${encodeURIComponent(currentUser.pseudo)}`);
+  currentUser.adminRole=d.role||getAdminRole();
+  applyAdminPanelVisibility();
   const uc=$("adminUsersList"),cc=$("adminClassesList"),sel=$("adminClassSelect"),selAll=$("adminAllClassSelect");
   const stats=$("adminDashboardStats");
   if(stats){const users=d.users||[];const online=users.filter(u=>u.online).length;const coins=users.reduce((n,u)=>n+Number(u.coins||0),0);const xp=users.reduce((n,u)=>n+Number(u.xp||0),0);stats.innerHTML=`<div class="admin-stat"><b>👥</b><strong>${users.length}</strong><span>comptes</span></div><div class="admin-stat"><b>🟢</b><strong>${online}</strong><span>en ligne</span></div><div class="admin-stat"><b>🪙</b><strong>${coins}</strong><span>pièces</span></div><div class="admin-stat"><b>✨</b><strong>${xp}</strong><span>XP totale</span></div>`;}
@@ -2552,7 +2579,7 @@ $("adminHalloweenStop")?.addEventListener("click",async()=>{if(!isAdmin())return
 $("adminBloodMoonButton")?.addEventListener("click",async()=>{if(!isAdmin())return;try{const d=await apiJson("/api/admin/blood-moon/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPseudo:currentUser.pseudo})});$("adminBloodMoonMessage").textContent="✅ "+d.message;refreshBloodMoonButton();}catch(e){$("adminBloodMoonMessage").textContent="❌ "+e.message;}});
 socket.on("bloodMoonStatusChanged",()=>{refreshBloodMoonButton();});
 socket.on("globalBoostUpdated",data=>{
-  if(isAdmin())loadAdminV8();
+  if(hasAdminPanel())loadAdminV8();
   if(data?.boost)updateProfile();
 });
 socket.on("voteError",data=>{alert("🗳️ "+(data?.message||"Vote refusé."));});
@@ -2649,7 +2676,7 @@ async function openHalloweenBoxAnimated(type){
   try{
     const result=await apiJson("/api/halloween/boxes/open",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pseudo:currentUser.pseudo,type})});
     setTimeout(()=>{
-      const label=result.reward?.coins?`${result.reward.coins} pièces 🪙`:result.reward?.xp?`${result.reward.xp} XP ✨`:result.reward?.trophies?`${result.reward.trophies} trophée(s) 🏆`:result.reward?.halloweenCandy?`${result.reward.halloweenCandy} bonbons 🍬`:`le titre « ${result.reward.title} » 🏷️`;
+      const label=result.reward?.coins?`${result.reward.coins} pièces 🪙`:result.reward?.xp?`${result.reward.xp} XP ✨`:result.reward?.trophies?`${result.reward.trophies} trophée(s) 🏆`:result.reward?.halloweenCandy?`${result.reward.halloweenCandy} bonbons 🍬`:result.reward?.classId?`la classe ${result.reward.classId} 🐺`:`le titre « ${result.reward.title} » 🏷️`;
       overlay.querySelector(".halloween-opening-card").innerHTML=`<div class="opening-reward">🎁</div><h2>Récompense obtenue !</h2><p class="opening-reward-text">${esc(label)}</p><button class="main-button" id="closeHalloweenBox">Continuer</button>`;
       currentUser=result.user; saveCurrentUser(); updateProfile(); overlay.querySelector("#closeHalloweenBox").onclick=()=>{overlay.remove();loadShopV8();};
     },1800);
