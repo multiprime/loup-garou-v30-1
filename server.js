@@ -28,6 +28,17 @@ const ADMIN_PSEUDO =
   (process.env.ADMIN_PSEUDO || "creator2026")
     .toLowerCase();
 
+function getAdminRoleForUser(user){
+  if(!user) return "none";
+  if(normalizePseudo(user.pseudo)===ADMIN_PSEUDO) return "full";
+  return user.adminRole === "reduced" ? "reduced" : "none";
+}
+function getAdminRoleFromPseudo(pseudo){ return getAdminRoleForUser(findUser(pseudo)); }
+function isFullAdminPseudo(pseudo){ return normalizePseudo(pseudo)===ADMIN_PSEUDO; }
+function isAnyAdminPseudo(pseudo){ return getAdminRoleFromPseudo(pseudo)!=="none"; }
+function requireFullAdmin(req,res){ if(!isFullAdminPseudo(req.body?.adminPseudo ?? req.query?.adminPseudo)) { res.status(403).json({message:"Accès réservé à l'administrateur principal."}); return false; } return true; }
+function requireAdminPanel(req,res){ if(!isAnyAdminPseudo(req.body?.adminPseudo ?? req.query?.adminPseudo)) { res.status(403).json({message:"Accès réservé aux administrateurs."}); return false; } return true; }
+
 // Stockage persistant : sur Render, définissez DATA_DIR=/data sur le disque persistant.
 // Render Free n'autorise pas l'écriture dans /data sans disque persistant.
 // Par défaut, on utilise le dossier de l'application pour que le serveur démarre.
@@ -205,6 +216,7 @@ function getHalloweenStatus() {
 function startHalloweenWeek(week){const w=Number(week);if(![1,2,3,4].includes(w))throw new Error('Semaine Halloween invalide.');const startedAt=Date.now();db.halloweenEvent={active:true,week:w,startedAt,endsAt:startedAt+7*24*60*60*1000};saveDatabase();const status=getHalloweenStatus();io.emit('halloweenStatusChanged',status);return status;}
 function stopHalloweenEvent(){const e=db.halloweenEvent||{};db.halloweenEvent={active:false,week:Number(e.week||0),startedAt:Number(e.startedAt||0),endsAt:Number(e.endsAt||0)};clearHalloweenCandy("Arrêt manuel");saveDatabase();const status=getHalloweenStatus();io.emit('halloweenStatusChanged',status);return status;}
 setInterval(()=>{ if(expireHalloweenIfNeeded()){ io.emit('halloweenStatusChanged',getHalloweenStatus()); } },60000);
+setInterval(()=>{ const wasActive=Boolean(db.maintenance?.active); const status=getMaintenanceStatus(); if(wasActive&&!status.active) io.emit("maintenanceStatusChanged",status); },1000);
 function isV26Released(){ return Boolean(db.v26Release?.active && Number(db.v26Release?.version||0)>=26); }
 function getClassDiscountPercent(){ const d=db.classDiscount||{}; return Number(d.until||0)>Date.now()?Math.max(0,Math.min(90,Number(d.percent||0))):0; }
 function getClassPrice(classe,user=null){ const pct=Math.max(getClassDiscountPercent(),getPersonalDiscountPercent(user)); return Math.max(0,Math.floor(Number(classe?.price||0)*(1-pct/100))); }
@@ -373,6 +385,7 @@ function publicUser(user) {
   if (!getHalloweenStatusForPublic() && !getPersonalEvent(user,"halloween")) safeUser.halloweenCandy = 0;
   safeUser.personalEvents = publicPersonalEvents(user);
   safeUser.identifier = `LG-${String(user.id || "").toUpperCase()}`;
+  safeUser.adminRole = getAdminRoleForUser(user);
   return safeUser;
 }
 
@@ -895,6 +908,7 @@ function ensureUserState(user) {
   user.halloweenBoxes = { haunted: Math.max(0, Number(user.halloweenBoxes?.haunted || 0)), cursed: Math.max(0, Number(user.halloweenBoxes?.cursed || 0)), nocturnal: Math.max(0, Number(user.halloweenBoxes?.nocturnal || 0)) };
   user.personalEvents = user.personalEvents && typeof user.personalEvents === "object" ? user.personalEvents : {};
   user.usedPromoCodes = Array.isArray(user.usedPromoCodes) ? user.usedPromoCodes : [];
+  if(user.adminRole !== "reduced") delete user.adminRole;
 }
 function getRankedSeasonKey(date=new Date()) {
   const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Paris",year:"numeric",month:"2-digit"}).formatToParts(date);
@@ -1272,17 +1286,21 @@ function openHalloweenBox(user,type){
   if(Number(user.halloweenBoxes[type]||0)<=0) throw new Error("Tu ne possèdes pas cette boîte.");
   user.halloweenBoxes[type]--;
   const rewards={
-    haunted:[{coins:100},{xp:150},{halloweenCandy:25}],
-    cursed:[{coins:250},{xp:350},{trophies:1},{halloweenCandy:50}],
-    nocturnal:[{coins:500},{xp:750},{trophies:2},{title:"Ombre de la Nuit"}]
+    haunted:[{coins:75},{coins:150},{xp:150},{xp:250},{halloweenCandy:25},{trophies:1},{title:"Fantôme du village"}],
+    cursed:[{coins:250},{coins:400},{xp:350},{xp:600},{trophies:2},{halloweenCandy:50},{title:"Maudit du village"},{classId:"pumpkin1"}],
+    nocturnal:[{coins:500},{coins:750},{xp:750},{xp:1200},{trophies:3},{halloweenCandy:120},{title:"Ombre de la Nuit"},{title:"Seigneur de la nuit"},{classId:"pumpkin1"}]
   };
-  const reward={...rewards[type][Math.floor(Math.random()*rewards[type].length)]};
+  let reward={...rewards[type][Math.floor(Math.random()*rewards[type].length)]};
+  // Une récompense unique ne doit jamais être perdue si le joueur la possède déjà.
   if(reward.title){
     user.titles=user.titles||["Nouveau Villageois"];
-    if(!user.titles.includes(reward.title)) user.titles.push(reward.title);
+    if(user.titles.includes(reward.title)) reward={coins:type==="nocturnal"?350:type==="cursed"?200:100};
   }
+  if(reward.classId && (user.classes||[]).includes(reward.classId)) reward={coins:type==="nocturnal"?400:type==="cursed"?250:125};
+  if(reward.title){ user.titles=user.titles||["Nouveau Villageois"]; if(!user.titles.includes(reward.title)) user.titles.push(reward.title); }
   applyReward(user,reward);
-  addNotification(user.pseudo,{title:"🎃 Boîte Halloween ouverte !",message:`Tu as obtenu ${reward.coins?reward.coins+" pièces 🪙":reward.xp?reward.xp+" XP ✨":reward.trophies?reward.trophies+" trophée(s) 🏆":reward.halloweenCandy?reward.halloweenCandy+" bonbons 🍬":"le titre « "+reward.title+" » 🏷️"}.`,type:"halloweenBox"});
+  const rewardLabel=reward.coins?reward.coins+" pièces 🪙":reward.xp?reward.xp+" XP ✨":reward.trophies?reward.trophies+" trophée(s) 🏆":reward.halloweenCandy?reward.halloweenCandy+" bonbons 🍬":reward.classId?"la classe "+(CLASSES.find(c=>c.id===reward.classId)?.name||reward.classId)+" 🐺":"le titre « "+reward.title+" » 🏷️";
+  addNotification(user.pseudo,{title:"🎃 Boîte Halloween ouverte !",message:`Tu as obtenu ${rewardLabel}.`,type:"halloweenBox"});
   emitProfile(user);
   saveDatabase();
   return {type,reward,boxes:halloweenBoxPayload(user),user:publicUser(user)};
@@ -2164,45 +2182,13 @@ app.post("/api/comments/:id/like",(req,res)=>{
    API : ADMIN
 ========================================= */
 
-app.get(
-  "/api/admin/users/:pseudo",
-  (req, res) => {
-    const adminPseudo =
-      req.query.adminPseudo;
-
-    if (
-      normalizePseudo(
-        adminPseudo
-      ) !== ADMIN_PSEUDO
-    ) {
-      return res
-        .status(403)
-        .json({
-          message:
-            "Accès refusé."
-        });
-    }
-
-    const user =
-      findUser(
-        req.params.pseudo
-      );
-
-    if (!user) {
-      return res
-        .status(404)
-        .json({
-          message:
-            "Joueur introuvable."
-        });
-    }
-
-    res.json({
-      user:
-        publicUser(user)
-    });
-  }
-);
+app.get("/api/admin/users/:pseudo", (req,res)=>{
+  if(!requireAdminPanel(req,res)) return;
+  const search=String(req.params.pseudo||"").trim();
+  const user=search.toUpperCase().startsWith("LG-") ? findUserByIdentifier(search) : findUser(search);
+  if(!user) return res.status(404).json({message:"Joueur introuvable."});
+  res.json({user:publicUser(user)});
+});
 
 app.post(
   "/api/admin/reward",
@@ -2217,21 +2203,11 @@ app.post(
       classId
     } = req.body;
 
-    if (
-      normalizePseudo(
-        adminPseudo
-      ) !== ADMIN_PSEUDO
-    ) {
-      return res
-        .status(403)
-        .json({
-          message:
-            "Accès refusé."
-        });
+    if (!isAnyAdminPseudo(adminPseudo)) {
+      return res.status(403).json({message:"Accès réservé aux administrateurs."});
     }
 
-    const user =
-      findUser(targetPseudo);
+    const user = findUser(targetPseudo) || findUserByIdentifier(targetPseudo);
 
     if (!user) {
       return res
@@ -2579,9 +2555,59 @@ app.put("/api/admin/updates/:id",async(req,res)=>{
   item.updatedAt=Date.now(); await saveDatabase(); res.json({message:"Mise à jour modifiée.",update:item});
 });
 
+/* =========================================
+   ADMIN : GESTION DES COMPTES / ADMIN RÉDUIT
+========================================= */
+app.post("/api/admin/create-account", async (req,res)=>{
+  if(!isAnyAdminPseudo(req.body.adminPseudo)) return res.status(403).json({message:"Accès réservé aux administrateurs."});
+  try{
+    const clean=cleanPseudo(req.body.pseudo);
+    const email=String(req.body.email||"").trim().toLowerCase();
+    const password=String(req.body.password||"");
+    if(clean.length<3||clean.length>20)return res.status(400).json({message:"Le pseudo doit contenir entre 3 et 20 caractères."});
+    if(!email.includes("@"))return res.status(400).json({message:"Adresse e-mail invalide."});
+    if(password.length<4)return res.status(400).json({message:"Le mot de passe doit contenir au moins 4 caractères."});
+    if(findUser(clean))return res.status(400).json({message:"Ce pseudo existe déjà."});
+    if(db.users.some(u=>String(u.email||"").toLowerCase()===email))return res.status(400).json({message:"Cette adresse e-mail est déjà utilisée."});
+    const user={id:createId(),pseudo:clean,email,password:await bcrypt.hash(password,10),icon:"🐺",title:"Nouveau Villageois",titles:["Nouveau Villageois"],equippedTitle:"Nouveau Villageois",level:1,xp:0,coins:50,halloweenCandy:0,halloweenBoxes:{haunted:0,cursed:0,nocturnal:0},trophies:0,rank:"Bois",classes:["wolf1"],equippedClass:null,gamesPlayed:0,gamesWon:0,createdAt:Date.now(),questStats:{},claimedQuests:[],rankedSeason:getRankedSeasonKey(),rankedPoints:0,rankedWins:0,rankedRank:"Bois",chatEnabled:true};
+    db.users.push(user); ensureUserState(user); saveDatabase(); addNotification(user.pseudo,{title:"Bienvenue !",message:"Vous avez reçu 50 pièces 🐺.",type:"reward"});
+    res.json({message:`Compte ${user.pseudo} créé avec succès.`,user:publicUser(user)});
+  }catch(e){console.error(e);res.status(500).json({message:"Erreur serveur."});}
+});
+app.post("/api/admin/account-admin-role",(req,res)=>{
+  if(!requireFullAdmin(req,res)) return;
+  const target=findUser(req.body.targetPseudo)||findUserByIdentifier(req.body.targetPseudo);
+  if(!target)return res.status(404).json({message:"Joueur introuvable."});
+  if(isFullAdminPseudo(target.pseudo))return res.status(400).json({message:"Le compte créateur ne peut pas être modifié."});
+  const enabled=req.body.enabled!==false;
+  if(enabled)target.adminRole="reduced"; else delete target.adminRole;
+  saveDatabase(); emitProfile(target);
+  res.json({message:enabled?`Panel admin réduit accordé à ${target.pseudo}.`:`Panel admin réduit retiré à ${target.pseudo}.`,user:publicUser(target)});
+});
+app.delete("/api/admin/users/:pseudo",(req,res)=>{
+  if(!requireFullAdmin(req,res)) return;
+  const search=String(req.params.pseudo||"").trim();
+  const target=search.toUpperCase().startsWith("LG-")?findUserByIdentifier(search):findUser(search);
+  if(!target)return res.status(404).json({message:"Joueur introuvable."});
+  if(isFullAdminPseudo(target.pseudo))return res.status(400).json({message:"Le compte créateur ne peut pas être supprimé."});
+  const key=normalizePseudo(target.pseudo); const socketId=onlineUsers.get(key);
+  if(socketId){ try{ io.sockets.sockets.get(socketId)?.emit("forceLogout",{message:"Ton compte a été supprimé par l'administrateur."}); io.sockets.sockets.get(socketId)?.disconnect(true); }catch(_){} onlineUsers.delete(key); }
+  db.users=db.users.filter(u=>u!==target);
+  db.friendships=db.friendships.filter(f=>normalizePseudo(f.user1)!==key&&normalizePseudo(f.user2)!==key);
+  db.friendRequests=db.friendRequests.filter(r=>normalizePseudo(r.fromPseudo)!==key&&normalizePseudo(r.toPseudo)!==key);
+  db.messages=db.messages.filter(m=>normalizePseudo(m.from)!==key&&normalizePseudo(m.to)!==key);
+  db.notifications=db.notifications.filter(n=>normalizePseudo(n.pseudo)!==key);
+  db.recoveryRequests=(db.recoveryRequests||[]).filter(r=>normalizePseudo(r.pseudo)!==key);
+  saveDatabase(); io.emit("userDeleted",{pseudo:target.pseudo});
+  res.json({message:`Compte ${target.pseudo} supprimé définitivement.`});
+});
+
 app.get("/api/admin/bootstrap",(req,res)=>{
-  if(normalizePseudo(req.query.adminPseudo)!==ADMIN_PSEUDO)return res.status(403).json({message:"Accès refusé."});
-  res.json({users:db.users.map(publicUser),classes:getPublicClasses(),announcement:db.announcements,globalBoosts:getGlobalBoostPayload(),halloween:getHalloweenStatus(),maintenance:getMaintenanceStatus(),v26Release:db.v26Release||{active:false,version:25,updatedAt:0},promoCodes:Object.values(db.promoCodes||{}).map(publicPromoCode),recoveryRequests:(db.recoveryRequests||[]).filter(r=>!r.approvedAt&&!r.usedAt).map(r=>({id:r.id,identifier:r.identifier,pseudo:r.pseudo,createdAt:r.createdAt,status:r.status||"pending"})),updates:(db.updateHistory||[]).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))),halloweenChallenge:getHalloweenChallengeStatus(),classDiscount:{percent:getClassDiscountPercent(),until:Number(db.classDiscount?.until||0)}});
+  if(!isAnyAdminPseudo(req.query.adminPseudo))return res.status(403).json({message:"Accès réservé aux administrateurs."});
+  const role=getAdminRoleFromPseudo(req.query.adminPseudo);
+  const base={users:db.users.map(publicUser),classes:getPublicClasses(),role};
+  if(role==="full") Object.assign(base,{announcement:db.announcements,globalBoosts:getGlobalBoostPayload(),halloween:getHalloweenStatus(),maintenance:getMaintenanceStatus(),v26Release:db.v26Release||{active:false,version:25,updatedAt:0},promoCodes:Object.values(db.promoCodes||{}).map(publicPromoCode),recoveryRequests:(db.recoveryRequests||[]).filter(r=>!r.approvedAt&&!r.usedAt).map(r=>({id:r.id,identifier:r.identifier,pseudo:r.pseudo,createdAt:r.createdAt,status:r.status||"pending"})),updates:(db.updateHistory||[]).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))),halloweenChallenge:getHalloweenChallengeStatus(),classDiscount:{percent:getClassDiscountPercent(),until:Number(db.classDiscount?.until||0)}});
+  res.json(base);
 });
 
 app.post("/api/admin/reward-all-now",(req,res)=>{

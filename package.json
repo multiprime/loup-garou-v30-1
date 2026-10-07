@@ -1,6 +1,6 @@
 {
   "name": "loup-garou-v7",
-  "version": "0.31.0",
+  "version": "0.31.1",
   "description": "Jeu Loup-Garou multijoueur",
   "main": "server.js",
   "scripts": {
