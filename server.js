@@ -1035,36 +1035,25 @@ function removeUserFromRooms(pseudo) {
   db.rooms=db.rooms.filter(room=>room.players.length>0);
 }
 
-function addBotsToRoom(room) {
-  let number = 1;
-
-  while (
-    room.players.length < 8
-  ) {
-    let botPseudo =
-      `Bot_${number}`;
-
-    while (
-      room.players.some(
-        (player) =>
-          player.pseudo === botPseudo
-      )
-    ) {
-      number++;
-      botPseudo =
-        `Bot_${number}`;
-    }
-
-    room.players.push({
-      pseudo: botPseudo,
-      isBot: true,
-      socketId: null
-    });
-
-    number++;
+const BOT_PSEUDOS = [
+  "LunaNoire","CrocsDArgent","OmbreFurtive","NuitSauvage","GriffeRouge","BrumeNoire","PetitLoup","Loupiote","LoupSombre","EtoileGrise",
+  "FauconNoir","RenardLunaire","CorbeauNoir","Tempete","FeuFollet","ChasseurNocturne","BrumeLunaire","GriffeDeNuit","VentSombre","LoupFantome",
+  "PlumeNoire","EclairGris","RoiDesBois","ReineDeNuit","Hurlement","CroissantDeLune","Nebuleuse","SombreLoup","CendreNoire","ForetMystique",
+  "OmbreGrise","LuneRouge","NuitEtoilee","GivreNoir","Rodeur","EspritDesBois","LoupArgente","BrumeGrise","EchoNocturne","LoupDeMinuit"
+];
+function randomBotPseudo(room){
+  const used=new Set(room.players.map(p=>normalizePseudo(p.pseudo)));
+  const available=BOT_PSEUDOS.filter(name=>!used.has(normalizePseudo(name)));
+  if(available.length)return available[Math.floor(Math.random()*available.length)];
+  let i=2,candidate=`LoupMystere${i}`;
+  while(used.has(normalizePseudo(candidate)))candidate=`LoupMystere${++i}`;
+  return candidate;
+}
+function addBotsToRoom(room){
+  while(room.players.length<8){
+    room.players.push({pseudo:randomBotPseudo(room),isBot:true,socketId:null});
   }
 }
-
 
 /* =========================================
    VRAIE PARTIE LOUP-GAROU
@@ -2531,7 +2520,7 @@ app.post("/api/admin/recovery/approve", async (req,res)=>{
   res.json({message:"Récupération validée. Le joueur a reçu son bouton de reconnexion.",requestId:request.id});
 });
 
-app.get("/api/halloween/challenge",(req,res)=>res.json({challenge:getHalloweenChallengeStatus()}));
+app.get("/api/halloween/challenge",(req,res)=>{res.set("Cache-Control","no-store");res.json({challenge:getHalloweenChallengeStatus()});});
 
 app.get("/api/updates",(req,res)=>{
   res.json({updates:(db.updateHistory||[]).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")))});
